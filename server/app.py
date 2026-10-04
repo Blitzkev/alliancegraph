@@ -13,7 +13,7 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_FILE = ROOT_DIR / "data" / "alliances.json"
+DEFAULT_DATA_FILE = Path(os.environ.get("ALLYGRAPH_DATA", ROOT_DIR / "data" / "alliances.json"))
 DIST_DIR = ROOT_DIR / "web" / "dist"
 
 TYPES = ("root", "family", "academy")
