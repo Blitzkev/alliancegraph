@@ -2,6 +2,9 @@
   "name": "allygraph-web",
   "private": true,
   "version": "1.0.0",
+  "engines": {
+    "node": ">=22.15.0"
+  },
   "scripts": {
     "build": "webpack --mode production",
     "dev": "webpack serve --mode development"

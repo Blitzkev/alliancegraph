@@ -14,33 +14,68 @@ A tag can only be used once per server.
 - `server/` — Flask app: JSON API + serves the built frontend. Data lives in `data/alliances.json`.
 - `web/` — React + webpack + D3.
 
+## Requirements
+
+- [Python](https://www.python.org/downloads/) 3.10 or newer
+- [Node.js](https://nodejs.org/) 22.15 or newer (includes npm)
+
+Any install method works (python.org, Homebrew, apt, pyenv, nvm, …). Check with `python3 --version` and `node --version`.
+
 ## Setup
 
-```sh
-/opt/homebrew/bin/python3 -m venv .venv
-.venv/bin/pip install -r server/requirements.txt
-cd web && npm install
-```
+All commands are run from the repository root.
+
+1. Create and activate a Python virtual environment:
+
+   ```sh
+   python3 -m venv .venv
+   source .venv/bin/activate        # macOS / Linux
+   ```
+
+   On Windows use `py -m venv .venv`, then `.venv\Scripts\activate` (cmd/PowerShell) or `source .venv/Scripts/activate` (Git Bash).
+
+2. Install the server and frontend dependencies:
+
+   ```sh
+   pip install -r server/requirements.txt
+   cd web
+   npm install
+   cd ..
+   ```
 
 ## Run
 
-```sh
-cd web && npm run build && cd ..
-.venv/bin/python server/app.py        # http://localhost:5050
-```
-
-For frontend development with live reload, run the Flask server as above and in another terminal:
+With the virtual environment activated:
 
 ```sh
-cd web && npm run dev                 # http://localhost:8080, proxies /api to :5050
+cd web
+npm run build
+cd ..
+python server/app.py                 # http://localhost:5050
 ```
 
-Set `ALLYGRAPH_DATA=/path/to/file.json` to use a different data file, or `PORT` to change the port.
+The build only needs repeating after frontend changes. Data persists in `data/alliances.json`.
+
+For frontend development with live reload, keep the server running and in a second terminal:
+
+```sh
+cd web
+npm run dev                          # http://localhost:8080, proxies /api to :5050
+```
+
+### Configuration
+
+| Variable         | Default               | Purpose                     |
+| ---------------- | --------------------- | --------------------------- |
+| `PORT`           | `5050`                | Server port                 |
+| `ALLYGRAPH_DATA` | `data/alliances.json` | Path to the JSON data file  |
 
 ## Tests
 
 ```sh
-cd server && ../.venv/bin/pytest
+pip install -r server/requirements-dev.txt
+cd server
+pytest
 ```
 
 ## API
