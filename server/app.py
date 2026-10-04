@@ -21,7 +21,7 @@ NAME_MAX = 256
 TAG_MAX = 4
 USER_NAME_MAX = 64
 NOTES_MAX = 200_000
-POWER_MAX = 2**63 - 1  # signed 64-bit bigint
+POWER_MAX = 2**64 - 1  # unsigned 64-bit; power is never negative
 SERVER_RE = re.compile(r"^[0-9]{4}$")
 USER_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 

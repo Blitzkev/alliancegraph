@@ -6,7 +6,7 @@ the left branch and academies down the right. Drag nodes to reorder them (member
 roots to move their umbrella), and click an umbrella to see and edit its members.
 
 Alliances can carry free-form notes (up to 200,000 characters), stored exactly as typed, and a
-**power** (a whole number from 0 to 2^63-1, shown as e.g. `1,200,000`). Power travels as a digit string
+**power** (a whole number from 0 to 2^64-1, shown as e.g. `1,200,000`). Power travels as a digit string
 because browsers can't represent integers that large exactly. Alliances are ordered by power (highest
 first) unless you rearrange them by dragging; "Sort by power" in the umbrella panel undoes that.
 

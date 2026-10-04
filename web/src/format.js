@@ -15,7 +15,7 @@ export function allianceDeleteMessage(target, alliances) {
 }
 
 // Power is a bigint kept as a digit string; BigInt compares and formats it exactly.
-export const POWER_MAX = BigInt("9223372036854775807"); // 2^63 - 1, signed 64-bit
+export const POWER_MAX = BigInt("18446744073709551615"); // 2^64 - 1, unsigned 64-bit
 
 const powerOf = (a) => BigInt(a.power || "0");
 

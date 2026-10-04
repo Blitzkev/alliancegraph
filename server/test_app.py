@@ -322,13 +322,13 @@ def test_power_defaults_to_zero(client):
 @pytest.mark.parametrize(
     "given, stored",
     [("1200000", "1200000"), ("1,200,000", "1200000"), (" 1 200_000 ", "1200000"), (42, "42"), ("007", "7"),
-     ("9223372036854775807", "9223372036854775807")],
+     ("18446744073709551615", "18446744073709551615")],
 )
 def test_power_is_stored_as_canonical_digit_string(client, given, stored):
     assert make(client, power=given).get_json()["power"] == stored
 
 
-@pytest.mark.parametrize("power", ["-1", -1, "1.5", 1.5, "abc", "9223372036854775808", True, [1]])
+@pytest.mark.parametrize("power", ["-1", -1, "1.5", 1.5, "abc", "18446744073709551616", True, [1]])
 def test_bad_power_rejected(client, power):
     assert "power" in make(client, power=power).get_json()["errors"]
 
