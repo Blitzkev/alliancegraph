@@ -45,16 +45,13 @@ All commands are run from the repository root.
 
 ## Run
 
-With the virtual environment activated:
-
 ```sh
-cd web
-npm run build
-cd ..
-python server/app.py                 # http://localhost:5050
+make run                             # builds the frontend, starts http://localhost:5050
 ```
 
-The build only needs repeating after frontend changes. Data persists in `data/alliances.json`.
+This uses `.venv/bin/python` directly, so the venv doesn't need to be activated. Without `make`
+(e.g. on Windows), activate the venv and run `cd web && npm run build && cd ..` then
+`python server/app.py`. Data persists in `data/alliances.json`.
 
 For frontend development, keep the server running and in a second terminal:
 
@@ -74,8 +71,7 @@ npm run dev                          # rebuilds web/dist on every change; refres
 
 ```sh
 pip install -r server/requirements-dev.txt
-cd server
-pytest
+make test
 ```
 
 ## Contributing
