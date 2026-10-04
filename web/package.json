@@ -7,7 +7,7 @@
   },
   "scripts": {
     "build": "webpack --mode production",
-    "dev": "webpack serve --mode development"
+    "dev": "webpack --mode development --watch"
   },
   "dependencies": {
     "d3": "^7.9.0",
@@ -23,7 +23,6 @@
     "html-webpack-plugin": "^5.6.8",
     "style-loader": "^4.0.0",
     "webpack": "^5.111.1",
-    "webpack-cli": "^7.2.3",
-    "webpack-dev-server": "^6.0.0"
+    "webpack-cli": "^7.2.3"
   }
 }

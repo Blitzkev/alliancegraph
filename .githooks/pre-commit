@@ -1,0 +1,28 @@
+#!/bin/sh
+# Blocks the commit unless npm is the latest release and the frontend has no known vulnerabilities.
+# Enable once per clone with:  git config core.hooksPath .githooks
+# Skip in an emergency with:   git commit --no-verify
+
+cd "$(git rev-parse --show-toplevel)/web" || exit 1
+
+fail() {
+  printf '\npre-commit: %s\n' "$1" >&2
+  exit 1
+}
+
+command -v npm >/dev/null 2>&1 || fail "npm not found on PATH."
+
+echo "pre-commit: checking npm version..."
+current=$(npm --version)
+latest=$(npm view npm version 2>/dev/null) || fail "could not reach the npm registry to check the latest npm version."
+if [ "$current" != "$latest" ]; then
+  required_node=$(npm view npm@latest engines.node 2>/dev/null)
+  fail "npm $current is installed but $latest is available. Upgrade with:
+    npm install -g npm@latest
+  (npm $latest requires Node $required_node; you have $(node --version).)"
+fi
+
+echo "pre-commit: running npm audit..."
+if ! npm audit; then
+  fail "npm audit found vulnerabilities (or could not run). Fix them before committing."
+fi

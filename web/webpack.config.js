@@ -18,9 +18,4 @@ module.exports = {
   // React + D3 is ~330 KiB; fine for this app, so skip the size warnings.
   performance: { hints: false },
   plugins: [new HtmlWebpackPlugin({ template: "./src/index.html" })],
-  devServer: {
-    port: 8080,
-    historyApiFallback: true,
-    proxy: [{ context: ["/api"], target: "http://127.0.0.1:5050" }],
-  },
 };

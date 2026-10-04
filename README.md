@@ -56,11 +56,11 @@ python server/app.py                 # http://localhost:5050
 
 The build only needs repeating after frontend changes. Data persists in `data/alliances.json`.
 
-For frontend development with live reload, keep the server running and in a second terminal:
+For frontend development, keep the server running and in a second terminal:
 
 ```sh
 cd web
-npm run dev                          # http://localhost:8080, proxies /api to :5050
+npm run dev                          # rebuilds web/dist on every change; refresh the browser
 ```
 
 ### Configuration
@@ -77,6 +77,18 @@ pip install -r server/requirements-dev.txt
 cd server
 pytest
 ```
+
+## Contributing
+
+A pre-commit hook blocks commits unless npm is the latest release and `npm audit` reports no
+vulnerabilities. Enable it once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+If it reports an outdated npm, run `npm install -g npm@latest` (the message says which Node version that
+npm needs). `git commit --no-verify` skips the hook in an emergency.
 
 ## API
 
