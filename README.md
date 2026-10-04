@@ -5,6 +5,8 @@ Each server is a box of root umbrellas; each umbrella is a tree with the root on
 the left branch and academies down the right. Drag nodes to reorder them (members within their branch,
 roots to move their umbrella), and click an umbrella to see and edit its members.
 
+Alliances can carry free-form notes (up to 200,000 characters), stored exactly as typed.
+
 - **Root** alliances sit at the top of an umbrella.
 - **Family** alliances are equal members under a root.
 - **Academy** alliances are protected members under a root.
@@ -113,7 +115,7 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | POST   | `<u>/servers`            | `{number}` (4 digits) → `201` server, or `400 {errors}`                    |
 | DELETE | `<u>/servers/<number>`   | `{deleted: [alliance ids]}` — deleting a server deletes all its alliances |
 | GET    | `<u>/alliances`          | List of alliances                                                         |
-| POST   | `<u>/alliances`          | `{name, tag, server, type, rootId}` → `201` alliance, or `400 {errors}`    |
+| POST   | `<u>/alliances`          | `{name, tag, server, type, rootId, notes?}` → `201` alliance, or `400 {errors}`    |
 | PUT    | `<u>/alliances/order`    | `{ids: [...]}` → sets each alliance's display position to its index        |
-| PATCH  | `<u>/alliances/<id>`     | Any of `{name, tag, type, rootId}` → updated alliance. Server is fixed; roots stay roots |
+| PATCH  | `<u>/alliances/<id>`     | Any of `{name, tag, type, rootId, notes}` → updated alliance. Server is fixed; roots stay roots |
 | DELETE | `<u>/alliances/<id>`     | `{deleted: [ids]}` — deleting a root also deletes its members             |

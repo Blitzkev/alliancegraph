@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { createAlliance } from "../api";
 import { charLength, formatAlliance, formatServer, TYPE_LABELS } from "../format";
+import NotesField, { notesError } from "./NotesField";
 
-function validate({ name, tag }, server, needsRoot, rootId) {
+function validate({ name, tag, notes }, server, needsRoot, rootId) {
   const errors = {};
   const n = charLength(name.trim());
   const t = charLength(tag.trim());
@@ -12,6 +13,8 @@ function validate({ name, tag }, server, needsRoot, rootId) {
   else if (t > 4) errors.tag = "Tag must be 1-4 characters.";
   if (!server) errors.server = "Select a server.";
   if (needsRoot && !rootId) errors.rootId = "Select a root alliance.";
+  const notesProblem = notesError(notes);
+  if (notesProblem) errors.notes = notesProblem;
   return errors;
 }
 
@@ -24,7 +27,7 @@ export default function AllianceModal({ userId, type, servers, roots, onSaved, o
         ? `A Root Alliance must exist before you can create a ${TYPE_LABELS[type]} Alliance.`
         : null;
 
-  const [fields, setFields] = useState({ name: "", tag: "" });
+  const [fields, setFields] = useState({ name: "", tag: "", notes: "" });
   const [server, setServer] = useState(servers.length === 1 ? servers[0] : "");
   const [rootId, setRootId] = useState("");
   const [errors, setErrors] = useState({});
@@ -130,6 +133,12 @@ export default function AllianceModal({ userId, type, servers, roots, onSaved, o
               <input value={fields.tag} onChange={set("tag")} />
               {errors.tag && <span className="error">{errors.tag}</span>}
             </label>
+
+            <NotesField
+              value={fields.notes}
+              onChange={(notes) => setFields((f) => ({ ...f, notes }))}
+              error={errors.notes}
+            />
 
             {preview && <p className="preview">{preview}</p>}
             {errors._ && <p className="error">{errors._}</p>}

@@ -277,3 +277,36 @@ def test_reorder_rejects_duplicates(client):
     root = make(client).get_json()
     res = client.put("/alliances/order", json={"ids": [root["id"], root["id"]]})
     assert res.status_code == 400
+
+
+# --- notes ---
+
+
+def test_notes_default_to_empty(client):
+    assert make(client).get_json()["notes"] == ""
+
+
+def test_notes_keep_whitespace_and_unicode_exactly(client):
+    notes = "  leading spaces\n\n\tTabbed line ✨\r\nWindows line\n  trailing  \n\n"
+    alliance = make(client, notes=notes).get_json()
+    assert alliance["notes"] == notes
+    assert client.get("/alliances").get_json()[0]["notes"] == notes
+
+
+def test_notes_length_limit_counts_characters(client):
+    assert make(client, notes="名" * 200_000).status_code == 201
+    res = make(client, tag="T2", notes="x" * 200_001)
+    assert "notes" in res.get_json()["errors"]
+
+
+def test_notes_must_be_text(client):
+    assert "notes" in make(client, notes=123).get_json()["errors"]
+
+
+def test_update_notes(client):
+    root = make(client, notes="old").get_json()
+    res = client.patch(f"/alliances/{root['id']}", json={"notes": "  new\n"})
+    assert res.get_json()["notes"] == "  new\n"
+    # Other edits leave notes alone.
+    res = client.patch(f"/alliances/{root['id']}", json={"name": "Renamed"})
+    assert res.get_json()["notes"] == "  new\n"

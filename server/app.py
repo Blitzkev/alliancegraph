@@ -20,6 +20,7 @@ TYPES = ("root", "family", "academy")
 NAME_MAX = 256
 TAG_MAX = 4
 USER_NAME_MAX = 64
+NOTES_MAX = 200_000
 SERVER_RE = re.compile(r"^[0-9]{4}$")
 USER_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -145,16 +146,27 @@ def validate_alliance(payload, data, existing=None):
         elif "server" not in errors and root["server"] != server:
             errors["rootId"] = f"The root alliance must be on server {server}."
 
+    # Notes are stored exactly as given: no trimming or normalization, so all whitespace survives.
+    notes = payload.get("notes", "")
+    if notes is None:
+        notes = ""
+    if not isinstance(notes, str):
+        errors["notes"] = "Notes must be text."
+    elif len(notes) > NOTES_MAX:
+        errors["notes"] = f"Notes must be at most {NOTES_MAX:,} characters."
+
     if "tag" not in errors and "server" not in errors:
         if any(a["server"] == server and a["tag"] == tag for a in others):
             errors["tag"] = f"Tag [#{tag}] is already used on server {server}."
 
-    fields = {"name": name, "tag": tag, "server": server, "type": kind, "rootId": root_id}
+    fields = {"name": name, "tag": tag, "server": server, "type": kind, "rootId": root_id, "notes": notes}
     return fields, errors
 
 
 def create_app(data_dir=DEFAULT_DATA_DIR):
     app = Flask(__name__, static_folder=None)
+    # Largest legitimate request is an alliance with 200k characters of notes (~800 KB as UTF-8).
+    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
     store = Store(data_dir)
 
     def bad_body():
