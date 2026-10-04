@@ -52,6 +52,7 @@ body {
 .btn-family { background: var(--family); }
 .btn-academy { background: var(--academy); }
 .btn-danger { background: var(--danger); }
+.btn-server { background: #475569; }
 .btn-primary { background: #111827; }
 .btn-secondary { background: #e5e7eb; color: var(--text); }
 
@@ -109,7 +110,33 @@ select, input {
 }
 .label-root { font-size: 14px; font-weight: 700; }
 
-.node, line, .umbrella { transition: opacity 0.2s; }
+.server-region {
+  fill: #94a3b8;
+  fill-opacity: 0.08;
+  stroke: #475569;
+  stroke-opacity: 0.6;
+  stroke-width: 1.5;
+  stroke-dasharray: 8 5;
+}
+.server-label {
+  font-size: 15px;
+  font-weight: 700;
+  fill: #334155;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4px;
+  pointer-events: none;
+}
+
+.link-label {
+  font-size: 8px;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 2.5px;
+  pointer-events: none;
+}
+
+.node, line, .link-label, .umbrella { transition: opacity 0.2s; }
 .dimmed { opacity: 0.12; }
 
 .legend {
@@ -161,6 +188,7 @@ select, input {
 .modal-root { border-top-color: var(--root); }
 .modal-family { border-top-color: var(--family); }
 .modal-academy { border-top-color: var(--academy); }
+.modal-server { border-top-color: #475569; }
 .modal h2 { margin: 0 0 14px; font-size: 1.15rem; }
 .modal label {
   display: flex;

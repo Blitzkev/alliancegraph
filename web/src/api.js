@@ -20,3 +20,15 @@ export const createAlliance = (alliance) =>
 
 export const deleteAlliance = (id) =>
   request(`/api/alliances/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+export const listServers = () => request("/api/servers");
+
+export const createServer = (number) =>
+  request("/api/servers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ number }),
+  });
+
+export const deleteServer = (number) =>
+  request(`/api/servers/${encodeURIComponent(number)}`, { method: "DELETE" });

@@ -1,55 +1,79 @@
-import { useEffect, useState } from "react";
-import { listAlliances, deleteAlliance } from "./api";
-import { formatAlliance, TYPE_LABELS } from "./format";
+import { useEffect, useMemo, useState } from "react";
+import { listAlliances, listServers, deleteAlliance, deleteServer } from "./api";
+import { formatAlliance, formatServer, TYPE_LABELS } from "./format";
 import AllianceModal from "./components/AllianceModal";
+import ServerModal from "./components/ServerModal";
 import AllianceGraph from "./components/AllianceGraph";
 
 export default function App() {
+  const [servers, setServers] = useState([]);
   const [alliances, setAlliances] = useState([]);
   const [loadError, setLoadError] = useState(null);
-  const [modalType, setModalType] = useState(null);
-  const [deleteId, setDeleteId] = useState("");
+  const [modal, setModal] = useState(null); // "server" | alliance type | null
+  const [deleteKey, setDeleteKey] = useState("");
   const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
-    listAlliances()
-      .then(setAlliances)
-      .catch(() => setLoadError("Could not load alliances from the server."));
+    Promise.all([listServers(), listAlliances()])
+      .then(([s, a]) => {
+        setServers(s.map((x) => x.number));
+        setAlliances(a);
+      })
+      .catch(() => setLoadError("Could not load data from the server."));
   }, []);
 
+  const sortedServers = useMemo(() => [...servers].sort(), [servers]);
   const roots = alliances.filter((a) => a.type === "root");
 
-  const handleSaved = (alliance) => {
+  const handleAllianceSaved = (alliance) => {
     setAlliances((prev) => [...prev, alliance]);
-    setModalType(null);
+    setModal(null);
   };
 
+  const handleServerSaved = (server) => {
+    setServers((prev) => [...prev, server.number]);
+    setModal(null);
+  };
+
+  // Delete dropdown values are "server:<number>" or "alliance:<id>".
   const handleDelete = async () => {
-    const target = alliances.find((a) => a.id === deleteId);
-    if (!target) return;
-    const children = alliances.filter((a) => a.rootId === target.id);
-    const warning = children.length
-      ? `\n\nThis will also delete its ${children.length} family/academy alliance(s).`
-      : "";
-    if (!window.confirm(`Delete ${formatAlliance(target)}?${warning}`)) return;
+    const [kind, key] = deleteKey.split(/:(.*)/);
+    let message, remove;
+    if (kind === "server") {
+      const count = alliances.filter((a) => a.server === key).length;
+      message = `Delete ${formatServer(key)}?`;
+      if (count) message += `\n\nThis will also delete its ${count} alliance(s).`;
+      remove = () => deleteServer(key);
+    } else {
+      const target = alliances.find((a) => a.id === key);
+      if (!target) return;
+      const count = alliances.filter((a) => a.rootId === target.id).length;
+      message = `Delete ${formatAlliance(target)}?`;
+      if (count) message += `\n\nThis will also delete its ${count} family/academy alliance(s).`;
+      remove = () => deleteAlliance(key);
+    }
+    if (!window.confirm(message)) return;
     try {
-      const { deleted } = await deleteAlliance(target.id);
+      const { deleted } = await remove();
       setAlliances((prev) => prev.filter((a) => !deleted.includes(a.id)));
-      setDeleteId("");
+      if (kind === "server") setServers((prev) => prev.filter((s) => s !== key));
+      setDeleteKey("");
       setDeleteError(null);
     } catch (err) {
       setDeleteError(Object.values(err.errors).join(" "));
     }
   };
 
-  // Group the delete dropdown by root so it's clear what falls under what.
-  const deleteOptions = roots.map((root) => (
-    <optgroup key={root.id} label={formatAlliance(root)}>
-      <option value={root.id}>{formatAlliance(root)} (Root)</option>
-      {alliances
-        .filter((a) => a.rootId === root.id)
+  // Group the delete dropdown by server, then by root, so it's clear what falls under what.
+  const deleteOptions = sortedServers.map((server) => (
+    <optgroup key={server} label={formatServer(server)}>
+      <option value={`server:${server}`}>{formatServer(server)} (entire server)</option>
+      {roots
+        .filter((r) => r.server === server)
+        .flatMap((root) => [root, ...alliances.filter((a) => a.rootId === root.id)])
         .map((a) => (
-          <option key={a.id} value={a.id}>
+          <option key={a.id} value={`alliance:${a.id}`}>
+            {a.type === "root" ? "" : "   "}
             {formatAlliance(a)} ({TYPE_LABELS[a.type]})
           </option>
         ))}
@@ -64,34 +88,43 @@ export default function App() {
 
       <div className="toolbar">
         <section className="panel">
+          <h2>Servers</h2>
+          <div className="button-row">
+            <button className="btn btn-server" onClick={() => setModal("server")}>
+              Create Server/Kingdom
+            </button>
+          </div>
+        </section>
+
+        <section className="panel">
           <h2>Create New Alliance</h2>
           <div className="button-row">
-            <button className="btn btn-root" onClick={() => setModalType("root")}>
+            <button className="btn btn-root" onClick={() => setModal("root")}>
               Root Alliance
             </button>
-            <button className="btn btn-family" onClick={() => setModalType("family")}>
+            <button className="btn btn-family" onClick={() => setModal("family")}>
               Family Alliance
             </button>
-            <button className="btn btn-academy" onClick={() => setModalType("academy")}>
+            <button className="btn btn-academy" onClick={() => setModal("academy")}>
               Academy Alliance
             </button>
           </div>
         </section>
 
         <section className="panel">
-          <h2>Delete Alliance</h2>
+          <h2>Delete</h2>
           <div className="button-row">
             <select
-              value={deleteId}
-              onChange={(e) => setDeleteId(e.target.value)}
-              disabled={alliances.length === 0}
+              value={deleteKey}
+              onChange={(e) => setDeleteKey(e.target.value)}
+              disabled={servers.length === 0}
             >
               <option value="">
-                {alliances.length ? "Select an alliance…" : "No alliances yet"}
+                {servers.length ? "Select a server or alliance…" : "Nothing to delete yet"}
               </option>
               {deleteOptions}
             </select>
-            <button className="btn btn-danger" onClick={handleDelete} disabled={!deleteId}>
+            <button className="btn btn-danger" onClick={handleDelete} disabled={!deleteKey}>
               Delete
             </button>
           </div>
@@ -102,15 +135,19 @@ export default function App() {
       {loadError && <p className="error banner">{loadError}</p>}
 
       <main className="graph-panel">
-        <AllianceGraph alliances={alliances} />
+        <AllianceGraph servers={sortedServers} alliances={alliances} />
       </main>
 
-      {modalType && (
+      {modal === "server" && (
+        <ServerModal onSaved={handleServerSaved} onClose={() => setModal(null)} />
+      )}
+      {modal && modal !== "server" && (
         <AllianceModal
-          type={modalType}
+          type={modal}
+          servers={sortedServers}
           roots={roots}
-          onSaved={handleSaved}
-          onClose={() => setModalType(null)}
+          onSaved={handleAllianceSaved}
+          onClose={() => setModal(null)}
         />
       )}
     </div>

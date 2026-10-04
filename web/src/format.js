@@ -4,3 +4,5 @@ export const formatAlliance = (a) => `[#${a.tag}][#${a.server}]${a.name}`;
 
 // Count code points, not UTF-16 units, so limits match the server.
 export const charLength = (s) => Array.from(s).length;
+
+export const formatServer = (number) => `Server #${number}`;

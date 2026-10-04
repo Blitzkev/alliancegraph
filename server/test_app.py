@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app import create_app
@@ -7,7 +9,10 @@ from app import create_app
 def client(tmp_path):
     app = create_app(tmp_path / "alliances.json")
     app.config["TESTING"] = True
-    return app.test_client()
+    client = app.test_client()
+    for number in ("4180", "4181", "0042"):
+        client.post("/api/servers", json={"number": number})
+    return client
 
 
 def make(client, **overrides):
@@ -25,17 +30,33 @@ def test_create_and_list_root(client):
 
 def test_persists_across_app_instances(tmp_path):
     path = tmp_path / "alliances.json"
-    make(create_app(path).test_client())
-    assert len(create_app(path).test_client().get("/api/alliances").get_json()) == 1
+    first = create_app(path).test_client()
+    first.post("/api/servers", json={"number": "4180"})
+    make(first)
+    second = create_app(path).test_client()
+    assert len(second.get("/api/servers").get_json()) == 1
+    assert len(second.get("/api/alliances").get_json()) == 1
 
 
-def test_leading_zero_server_kept(client):
-    assert make(client, server="0042").get_json()["server"] == "0042"
+def test_create_server_keeps_leading_zeros(client):
+    numbers = [s["number"] for s in client.get("/api/servers").get_json()]
+    assert numbers == ["4180", "4181", "0042"]
 
 
-@pytest.mark.parametrize("server", ["123", "12345", "abcd", 4180, "", "١٢٣٤"])
-def test_bad_server_rejected(client, server):
-    res = make(client, server=server)
+@pytest.mark.parametrize("number", ["123", "12345", "abcd", 4180, "", "١٢٣٤"])
+def test_bad_server_number_rejected(client, number):
+    res = client.post("/api/servers", json={"number": number})
+    assert res.status_code == 400
+    assert "number" in res.get_json()["errors"]
+
+
+def test_duplicate_server_rejected(client):
+    res = client.post("/api/servers", json={"number": "4180"})
+    assert res.status_code == 400
+
+
+def test_alliance_requires_existing_server(client):
+    res = make(client, server="9999")
     assert res.status_code == 400
     assert "server" in res.get_json()["errors"]
 
@@ -62,6 +83,13 @@ def test_family_requires_existing_root(client):
     assert "rootId" in res.get_json()["errors"]
 
 
+def test_family_must_share_root_server(client):
+    root = make(client).get_json()
+    res = make(client, type="family", tag="F1", server="4181", rootId=root["id"])
+    assert res.status_code == 400
+    assert "rootId" in res.get_json()["errors"]
+
+
 def test_delete_root_cascades(client):
     root = make(client).get_json()
     other = make(client, tag="R2").get_json()
@@ -72,5 +100,26 @@ def test_delete_root_cascades(client):
     assert client.get("/api/alliances").get_json() == [other]
 
 
+def test_delete_server_cascades(client):
+    root = make(client).get_json()
+    fam = make(client, type="family", tag="F1", rootId=root["id"]).get_json()
+    keep = make(client, server="4181").get_json()
+    res = client.delete("/api/servers/4180")
+    assert set(res.get_json()["deleted"]) == {root["id"], fam["id"]}
+    assert [s["number"] for s in client.get("/api/servers").get_json()] == ["4181", "0042"]
+    assert client.get("/api/alliances").get_json() == [keep]
+
+
 def test_delete_missing_is_404(client):
     assert client.delete("/api/alliances/nope").status_code == 404
+    assert client.delete("/api/servers/9999").status_code == 404
+
+
+def test_migrates_file_without_servers(tmp_path):
+    path = tmp_path / "alliances.json"
+    old = {"id": "a1", "name": "Old", "tag": "OLD", "server": "0042", "type": "root", "rootId": None}
+    path.write_text(json.dumps({"alliances": [old]}))
+    client = create_app(path).test_client()
+    assert [s["number"] for s in client.get("/api/servers").get_json()] == ["0042"]
+    # The migrated server is usable straight away.
+    assert make(client, server="0042", type="family", tag="F1", rootId="a1").status_code == 201

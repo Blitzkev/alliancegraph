@@ -6,8 +6,10 @@ A single-page site for tracking alliances and how they relate, drawn as an inter
 - **Family** alliances are equal members under a root.
 - **Academy** alliances are protected members under a root.
 
-Each alliance is shown as `[#TAG][#SERVER]Name`, e.g. `[#G~4][#4180]Path of Exiles`.
-A tag can only be used once per server.
+Each alliance belongs to a **server/kingdom** (a 4-digit number) and is shown as
+`[#TAG][#SERVER]Name`, e.g. `[#G~4][#4180]Path of Exiles`. Alliances can only be related to alliances
+on the same server, and a tag can only be used once per server. Servers are created first, then
+alliances are added to them.
 
 ## Stack
 
@@ -53,6 +55,9 @@ This uses `.venv/bin/python` directly, so the venv doesn't need to be activated.
 (e.g. on Windows), activate the venv and run `cd web && npm run build && cd ..` then
 `python server/app.py`. Data persists in `data/alliances.json`.
 
+To start over with no servers or alliances, run `make reset-data`. It asks for confirmation and keeps
+a timestamped backup of the old data next to it.
+
 For frontend development, keep the server running and in a second terminal:
 
 ```sh
@@ -89,8 +94,11 @@ npm needs). `git commit --no-verify` skips the hook in an emergency.
 
 ## API
 
-| Method | Path                   | Body / result                                                         |
-| ------ | ---------------------- | --------------------------------------------------------------------- |
-| GET    | `/api/alliances`       | List of alliances                                                     |
-| POST   | `/api/alliances`       | `{name, tag, server, type, rootId}` → `201` alliance, or `400 {errors}` |
-| DELETE | `/api/alliances/<id>`  | `{deleted: [ids]}` — deleting a root also deletes its members          |
+| Method | Path                    | Body / result                                                              |
+| ------ | ----------------------- | -------------------------------------------------------------------------- |
+| GET    | `/api/servers`          | List of servers                                                            |
+| POST   | `/api/servers`          | `{number}` (4 digits) → `201` server, or `400 {errors}`                     |
+| DELETE | `/api/servers/<number>` | `{deleted: [alliance ids]}` — deleting a server deletes all its alliances  |
+| GET    | `/api/alliances`        | List of alliances                                                          |
+| POST   | `/api/alliances`        | `{name, tag, server, type, rootId}` → `201` alliance, or `400 {errors}`     |
+| DELETE | `/api/alliances/<id>`   | `{deleted: [ids]}` — deleting a root also deletes its members              |
