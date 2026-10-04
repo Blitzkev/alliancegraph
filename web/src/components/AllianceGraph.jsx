@@ -362,9 +362,45 @@ export default function AllianceGraph({ servers, alliances, selectedUmbrella, on
   );
 }
 
+// Collapsed state is remembered per browser; storage may be unavailable, which is fine.
+const LEGEND_KEY = "allygraph.legendCollapsed";
+
 function Legend() {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(LEGEND_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggle = () => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(LEGEND_KEY, c ? "0" : "1");
+      } catch {
+        // Not remembering is fine.
+      }
+      return !c;
+    });
+  };
+
   return (
-    <div className="legend">
+    <div className={`legend${collapsed ? " collapsed" : ""}`}>
+      <button className="legend-toggle" onClick={toggle} aria-expanded={!collapsed}>
+        <span className="chevron" aria-hidden="true">
+          {collapsed ? "▸" : "▾"}
+        </span>
+        Legend
+      </button>
+      {!collapsed && <LegendBody />}
+    </div>
+  );
+}
+
+function LegendBody() {
+  return (
+    <div className="legend-body">
       {Object.entries(NODE).map(([type, { color }]) => (
         <div key={type} className="legend-row">
           <svg width="22" height="16">

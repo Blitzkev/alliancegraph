@@ -276,8 +276,24 @@ select, input {
   padding: 8px 12px;
   font-size: 0.8rem;
 }
+.legend.collapsed { padding: 4px 10px; }
+.legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+}
+.legend-toggle .chevron { width: 10px; color: var(--muted); }
+.legend-body { margin-top: 6px; }
 .legend-row { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
-.legend-hint { margin-top: 6px; color: var(--muted); font-size: 0.75rem; }
+.legend-hint { margin-top: 6px; max-width: 220px; color: var(--muted); font-size: 0.75rem; }
 
 .tooltip {
   position: absolute;
