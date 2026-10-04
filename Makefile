@@ -4,7 +4,7 @@
 PYTHON ?= .venv/bin/python
 DATA_DIR ?= $(or $(ALLYGRAPH_DATA_DIR),data)
 
-.PHONY: build run test reset-data
+.PHONY: build run test reset-data migrate
 
 build:
 	cd web && npm run build
@@ -26,6 +26,14 @@ reset-data:
 	mkdir -p "$$backup"; \
 	for f in users alliances.json; do [ -e "$(DATA_DIR)/$$f" ] && mv "$(DATA_DIR)/$$f" "$$backup/"; done; \
 	echo "Data reset. Backup: $$backup"
+
+# Upgrades every user's data to the current format, after copying it to a timestamped backup.
+migrate: $(PYTHON)
+	@if [ -d "$(DATA_DIR)/users" ]; then \
+	  backup="$(DATA_DIR)/backup-$$(date +%Y%m%d-%H%M%S)-premigrate.bak"; \
+	  mkdir -p "$$backup" && cp -R "$(DATA_DIR)/users" "$$backup/" && echo "Backup: $$backup"; \
+	fi
+	$(PYTHON) server/migrate.py "$(DATA_DIR)"
 
 $(PYTHON):
 	@echo "No virtualenv at .venv. Create it first (see README \"Setup\")." >&2

@@ -1,32 +1,49 @@
 import { useEffect, useState } from "react";
-import { deleteAlliance, updateAlliance } from "../api";
+import { updateAlliance } from "../api";
 import {
-  allianceDeleteMessage,
   charLength,
   formatAlliance,
   formatPower,
   formatServer,
   parsePower,
+  sortFamilies,
   TYPE_LABELS,
 } from "../format";
+import { FamilySelect, NEW_FAMILY, RootCheckbox } from "./AllianceModal";
 import NotesField, { notesError } from "./NotesField";
 import PowerField, { powerError } from "./PowerField";
 
-export default function EditAllianceModal({ userId, alliance, alliances, onSaved, onDeleted, onClose }) {
-  const isRoot = alliance.type === "root";
-  // Members can only belong to a root on their own server.
-  const serverRoots = alliances.filter((a) => a.type === "root" && a.server === alliance.server);
+export default function EditAllianceModal({
+  userId,
+  alliance,
+  families,
+  alliances,
+  onSaved,
+  onRequestDelete,
+  onClose,
+}) {
+  // Alliances can only be related on the same server.
+  const serverFamilies = sortFamilies(
+    families.filter((f) => f.server === alliance.server),
+    alliances,
+  );
 
   const [fields, setFields] = useState({
     name: alliance.name,
     tag: alliance.tag,
     type: alliance.type,
-    rootId: alliance.rootId || "",
+    familyId: alliance.familyId,
+    isRoot: Boolean(alliance.isRoot),
     power: formatPower(alliance.power),
     notes: alliance.notes ?? "",
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+
+  const isFamily = fields.type === "family";
+  const inOwnFamily = fields.familyId === alliance.familyId;
+  // The current root can only hand root over by another alliance taking it.
+  const rootLocked = alliance.isRoot && isFamily && inOwnFamily;
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -35,6 +52,22 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
   }, [onClose]);
 
   const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
+
+  const setType = (type) =>
+    setFields((f) => ({
+      ...f,
+      type,
+      // Academies can't start a new family; fall back to the current one.
+      familyId: type === "academy" && f.familyId === NEW_FAMILY ? alliance.familyId : f.familyId,
+      isRoot: type === "family" && f.familyId === alliance.familyId && Boolean(alliance.isRoot),
+    }));
+
+  const setFamily = (familyId) =>
+    setFields((f) => ({
+      ...f,
+      familyId,
+      isRoot: familyId === alliance.familyId && f.type === "family" && Boolean(alliance.isRoot),
+    }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,7 +78,7 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
     else if (n > 256) found.name = "Name must be at most 256 characters.";
     if (t === 0) found.tag = "Tag is required.";
     else if (t > 4) found.tag = "Tag must be 1-4 characters.";
-    if (!isRoot && !fields.rootId) found.rootId = "Select a root alliance.";
+    if (!isFamily && !fields.familyId) found.familyId = "Select a family.";
     const powerProblem = powerError(fields.power);
     if (powerProblem) found.power = powerProblem;
     const notesProblem = notesError(fields.notes);
@@ -55,21 +88,16 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
 
     setBusy(true);
     try {
-      const body = { name: fields.name, tag: fields.tag, power: parsePower(fields.power), notes: fields.notes };
-      if (!isRoot) Object.assign(body, { type: fields.type, rootId: fields.rootId });
-      onSaved(await updateAlliance(userId, alliance.id, body));
-    } catch (err) {
-      setErrors(err.errors);
-      setBusy(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!window.confirm(allianceDeleteMessage(alliance, alliances))) return;
-    setBusy(true);
-    try {
-      const { deleted } = await deleteAlliance(userId, alliance.id);
-      onDeleted(deleted);
+      await updateAlliance(userId, alliance.id, {
+        name: fields.name,
+        tag: fields.tag,
+        type: fields.type,
+        familyId: fields.familyId || null,
+        isRoot: isFamily && (!fields.familyId || fields.isRoot),
+        power: parsePower(fields.power),
+        notes: fields.notes,
+      });
+      onSaved();
     } catch (err) {
       setErrors(err.errors);
       setBusy(false);
@@ -85,43 +113,42 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className={`modal modal-${fields.type}`} onSubmit={handleSubmit} noValidate>
-        <h2>Edit {TYPE_LABELS[fields.type]} Alliance</h2>
+        <h2>
+          Edit {TYPE_LABELS[fields.type]} Alliance
+          {alliance.isRoot && <span className="root-badge">Root</span>}
+        </h2>
 
         <p className="modal-note">
           {formatServer(alliance.server)} <small>(an alliance's server can't be changed)</small>
         </p>
 
-        {!isRoot && (
-          <>
-            <fieldset className="type-choice">
-              <legend>Type</legend>
-              {["family", "academy"].map((t) => (
-                <label key={t} className={`radio type-${t}`}>
-                  <input
-                    type="radio"
-                    name="type"
-                    value={t}
-                    checked={fields.type === t}
-                    onChange={set("type")}
-                  />
-                  {TYPE_LABELS[t]}
-                </label>
-              ))}
-            </fieldset>
-
-            <label>
-              Root alliance
-              <select value={fields.rootId} onChange={set("rootId")}>
-                <option value="">Select a root alliance…</option>
-                {serverRoots.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {formatAlliance(r)}
-                  </option>
-                ))}
-              </select>
-              {errors.rootId && <span className="error">{errors.rootId}</span>}
+        <fieldset className="type-choice">
+          <legend>Type</legend>
+          {["family", "academy"].map((t) => (
+            <label key={t} className={`radio type-${t}`}>
+              <input type="radio" name="type" value={t} checked={fields.type === t} onChange={() => setType(t)} />
+              {TYPE_LABELS[t]}
             </label>
-          </>
+          ))}
+        </fieldset>
+
+        <FamilySelect
+          value={fields.familyId}
+          onChange={setFamily}
+          families={serverFamilies}
+          alliances={alliances}
+          allowNew={isFamily}
+          error={errors.familyId}
+        />
+
+        {isFamily && fields.familyId && (
+          <RootCheckbox
+            checked={fields.isRoot}
+            onChange={(isRoot) => setFields((f) => ({ ...f, isRoot }))}
+            familyId={fields.familyId}
+            alliances={alliances.filter((a) => a.id !== alliance.id)}
+            locked={rootLocked}
+          />
         )}
 
         <label>
@@ -149,10 +176,17 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
         />
 
         <p className="preview">{preview}</p>
-        {(errors._ || errors.type) && <p className="error">{errors._ || errors.type}</p>}
+        {(errors._ || errors.type || errors.isRoot) && (
+          <p className="error">{errors._ || errors.type || errors.isRoot}</p>
+        )}
 
         <div className="modal-actions">
-          <button type="button" className="btn btn-danger push-left" onClick={handleDelete} disabled={busy}>
+          <button
+            type="button"
+            className="btn btn-danger push-left"
+            onClick={() => onRequestDelete(alliance)}
+            disabled={busy}
+          >
             Delete
           </button>
           <button type="button" className="btn btn-secondary" onClick={onClose}>

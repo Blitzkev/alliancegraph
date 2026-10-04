@@ -16,7 +16,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = Path(os.environ.get("ALLYGRAPH_DATA_DIR", ROOT_DIR / "data"))
 DIST_DIR = ROOT_DIR / "web" / "dist"
 
-TYPES = ("root", "family", "academy")
+TYPES = ("family", "academy")
 NAME_MAX = 256
 TAG_MAX = 4
 USER_NAME_MAX = 64
@@ -44,6 +44,35 @@ def _write_json(path, data):
     os.replace(tmp, path)
 
 
+def _upgrade(data):
+    """Bring a data file written by an older version up to date. Returns True if anything changed."""
+    changed = False
+    if "servers" not in data:
+        # Files written before servers existed: create a server for each one alliances use.
+        numbers = sorted({a["server"] for a in data["alliances"]})
+        data["servers"] = [{"number": n, "createdAt": _now()} for n in numbers]
+        changed = True
+    if "families" not in data:
+        # Before families, a "root" alliance headed each tree and members pointed at it via rootId.
+        # Each root becomes the root family alliance of a new family that its members join.
+        data["families"] = []
+        family_of_root = {}
+        for a in data["alliances"]:
+            if a.get("type") == "root":
+                family = {"id": str(uuid.uuid4()), "server": a["server"], "createdAt": _now()}
+                if "position" in a:
+                    family["position"] = a.pop("position")
+                data["families"].append(family)
+                family_of_root[a["id"]] = family["id"]
+                a.update(type="family", isRoot=True, familyId=family["id"])
+        for a in data["alliances"]:
+            root_id = a.pop("rootId", None)
+            if root_id:
+                a.update(familyId=family_of_root[root_id], isRoot=False)
+        changed = True
+    return changed
+
+
 class Store:
     """One JSON file per user under <data_dir>/users/, each holding that user's graph.
 
@@ -58,18 +87,11 @@ class Store:
     def _import_legacy(self, legacy):
         # Before multi-user support all data lived in one file; adopt it as user "Default".
         if legacy.exists() and not self.list_users():
-            data = self._upgrade(_read_json(legacy))
+            data = _read_json(legacy)
+            _upgrade(data)
             user = self.create_user("Default")
-            self.save(user["id"], {"user": user, "servers": data["servers"], "alliances": data["alliances"]})
+            self.save(user["id"], {"user": user, **{k: data[k] for k in ("servers", "families", "alliances")}})
             legacy.rename(legacy.with_name(legacy.name + ".imported"))
-
-    @staticmethod
-    def _upgrade(data):
-        if "servers" not in data:
-            # Files written before servers existed: create a server for each one alliances use.
-            numbers = sorted({a["server"] for a in data["alliances"]})
-            data["servers"] = [{"number": n, "createdAt": _now()} for n in numbers]
-        return data
 
     def _path(self, user_id):
         return self.users_dir / f"{user_id}.json"
@@ -86,11 +108,15 @@ class Store:
 
     def create_user(self, name):
         user = {"id": str(uuid.uuid4()), "name": name, "createdAt": _now()}
-        _write_json(self._path(user["id"]), {"user": user, "servers": [], "alliances": []})
+        _write_json(self._path(user["id"]), {"user": user, "servers": [], "families": [], "alliances": []})
         return user
 
     def load(self, user_id):
-        return self._upgrade(_read_json(self._path(user_id)))
+        data = _read_json(self._path(user_id))
+        if _upgrade(data):
+            # Persist right away so ids created during the upgrade stay stable between requests.
+            self.save(user_id, data)
+        return data
 
     def save(self, user_id, data):
         _write_json(self._path(user_id), data)
@@ -127,15 +153,41 @@ def _clean_power(value):
     return str(number) if 0 <= number <= POWER_MAX else None
 
 
+def _members(data, family_id, kind=None, exclude=None):
+    return [
+        a
+        for a in data["alliances"]
+        if a.get("familyId") == family_id and (kind is None or a["type"] == kind) and a is not exclude
+    ]
+
+
+def _strongest(alliances):
+    """Highest power; ties go to the alphabetically first name."""
+    return min(alliances, key=lambda a: (-int(a.get("power") or 0), a["name"].casefold()))
+
+
+def _tidy_families(data):
+    """Drop families with no alliances left and make sure each remaining one has exactly one root."""
+    used = {a.get("familyId") for a in data["alliances"]}
+    data["families"] = [f for f in data["families"] if f["id"] in used]
+    for family in data["families"]:
+        members = _members(data, family["id"], "family")
+        roots = [a for a in members if a.get("isRoot")]
+        if not roots and members:
+            # The root left: promote the strongest remaining family alliance.
+            _strongest(members)["isRoot"] = True
+        for extra in roots[1:]:
+            extra["isRoot"] = False
+
+
 def validate_alliance(payload, data, existing=None):
     """Return (alliance_fields, errors). errors maps field name -> message.
 
-    With `existing`, validates an update to that alliance: its server is fixed, and it can't
-    switch between root and member (that would orphan members or break the hierarchy).
+    familyId None on a family alliance means "start a new family". With `existing`, validates an
+    update to that alliance; its server can't change.
     """
     errors = {}
-    alliances = data["alliances"]
-    others = [a for a in alliances if existing is None or a["id"] != existing["id"]]
+    others = [a for a in data["alliances"] if a is not existing]
 
     name = _clean_text(payload.get("name"))
     if not name:
@@ -156,18 +208,30 @@ def validate_alliance(payload, data, existing=None):
     kind = payload.get("type")
     if kind not in TYPES:
         errors["type"] = f"Type must be one of: {', '.join(TYPES)}."
-    elif existing and (kind == "root") != (existing["type"] == "root"):
-        errors["type"] = "A root alliance can't become a member, or a member a root."
 
-    root_id = payload.get("rootId")
-    if kind == "root":
-        root_id = None
-    elif kind in ("family", "academy"):
-        root = next((a for a in alliances if a["id"] == root_id), None)
-        if root is None or root["type"] != "root":
-            errors["rootId"] = "A valid root alliance must be selected."
-        elif "server" not in errors and root["server"] != server:
-            errors["rootId"] = f"The root alliance must be on server {server}."
+    family_id = payload.get("familyId") or None
+    family = next((f for f in data["families"] if f["id"] == family_id), None)
+    if family_id is not None and (family is None or family["server"] != server):
+        errors["familyId"] = "Select a family on this alliance's server."
+    elif kind == "academy":
+        if family is None:
+            errors["familyId"] = "An academy must belong to an existing family."
+        elif not _members(data, family_id, "family", exclude=existing):
+            errors["familyId"] = "That family has no family alliance left to protect an academy."
+
+    is_root = kind == "family" and (family_id is None or bool(payload.get("isRoot")))
+    if existing and existing.get("isRoot") and not is_root and family_id == existing["familyId"] and kind == "family":
+        errors["isRoot"] = "A family always has a root. Set another family alliance as root to change it."
+
+    # A family alliance can't leave (move or become an academy) if that would strand academies.
+    if existing and existing["type"] == "family" and (family_id != existing["familyId"] or kind != "family"):
+        old = existing["familyId"]
+        if not _members(data, old, "family", exclude=existing) and _members(data, old, "academy", exclude=existing):
+            count = len(_members(data, old, "academy", exclude=existing))
+            errors["familyId"] = (
+                f"This is the last family alliance in its family, which still has {count} academy "
+                f"alliance(s). Move or delete those academies first."
+            )
 
     # Notes are stored exactly as given: no trimming or normalization, so all whitespace survives.
     notes = payload.get("notes", "")
@@ -186,8 +250,33 @@ def validate_alliance(payload, data, existing=None):
         if any(a["server"] == server and a["tag"] == tag for a in others):
             errors["tag"] = f"Tag [#{tag}] is already used on server {server}."
 
-    fields = {"name": name, "tag": tag, "server": server, "type": kind, "rootId": root_id, "notes": notes, "power": power}
+    fields = {
+        "name": name,
+        "tag": tag,
+        "server": server,
+        "type": kind,
+        "familyId": family_id,
+        "isRoot": is_root,
+        "notes": notes,
+        "power": power,
+    }
     return fields, errors
+
+
+def apply_alliance(data, alliance, fields):
+    """Write validated fields onto `alliance` (already in data), creating a family if asked."""
+    if fields["familyId"] is None:
+        family = {"id": str(uuid.uuid4()), "server": fields["server"], "createdAt": _now()}
+        data["families"].append(family)
+        fields = {**fields, "familyId": family["id"]}
+    # Moving to another family or row makes the old display position meaningless.
+    if alliance.get("familyId") not in (None, fields["familyId"]) or alliance.get("type") not in (None, fields["type"]):
+        alliance.pop("position", None)
+    if fields["isRoot"]:
+        for other in _members(data, fields["familyId"], "family", exclude=alliance):
+            other["isRoot"] = False
+    alliance.update(fields)
+    _tidy_families(data)
 
 
 def create_app(data_dir=DEFAULT_DATA_DIR):
@@ -230,6 +319,14 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
             user = store.create_user(name)
         return jsonify(user), 201
 
+    @app.get("/api/users/<user_id>/graph")
+    def get_graph(user_id):
+        """Everything the page needs in one request."""
+        with store.lock:
+            require_user(user_id)
+            data = store.load(user_id)
+            return jsonify({k: data[k] for k in ("servers", "families", "alliances")})
+
     @app.get("/api/users/<user_id>/servers")
     def list_servers(user_id):
         with store.lock:
@@ -256,7 +353,7 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
 
     @app.delete("/api/users/<user_id>/servers/<number>")
     def delete_server(user_id, number):
-        # Deleting a server also deletes every alliance on it.
+        # Deleting a server also deletes every family and alliance on it.
         with store.lock:
             require_user(user_id)
             data = store.load(user_id)
@@ -264,9 +361,16 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
                 abort(404)
             deleted = sorted(a["id"] for a in data["alliances"] if a["server"] == number)
             data["servers"] = [s for s in data["servers"] if s["number"] != number]
+            data["families"] = [f for f in data["families"] if f["server"] != number]
             data["alliances"] = [a for a in data["alliances"] if a["server"] != number]
             store.save(user_id, data)
         return jsonify({"deleted": deleted})
+
+    @app.get("/api/users/<user_id>/families")
+    def list_families(user_id):
+        with store.lock:
+            require_user(user_id)
+            return jsonify(store.load(user_id)["families"])
 
     @app.get("/api/users/<user_id>/alliances")
     def list_alliances(user_id):
@@ -285,29 +389,37 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
             fields, errors = validate_alliance(payload, data)
             if errors:
                 return jsonify({"errors": errors}), 400
-            alliance = {"id": str(uuid.uuid4()), **fields, "createdAt": _now()}
+            alliance = {"id": str(uuid.uuid4()), "createdAt": _now()}
             data["alliances"].append(alliance)
+            apply_alliance(data, alliance, fields)
             store.save(user_id, data)
         return jsonify(alliance), 201
 
-    @app.put("/api/users/<user_id>/alliances/order")
-    def reorder_alliances(user_id):
-        # Sets each listed alliance's display position to its index in `ids` (e.g. one branch).
+    def reorder(user_id, collection):
+        # Sets each listed item's display position to its index in `ids` (e.g. one row).
         payload = request.get_json(silent=True)
         ids = payload.get("ids") if isinstance(payload, dict) else None
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
-            return jsonify({"errors": {"ids": "ids must be a list of distinct alliance ids."}}), 400
+            return jsonify({"errors": {"ids": "ids must be a list of distinct ids."}}), 400
         with store.lock:
             require_user(user_id)
             data = store.load(user_id)
-            by_id = {a["id"]: a for a in data["alliances"]}
+            by_id = {item["id"]: item for item in data[collection]}
             missing = [i for i in ids if i not in by_id]
             if missing:
-                return jsonify({"errors": {"ids": f"Unknown alliance ids: {', '.join(missing)}"}}), 400
-            for position, alliance_id in enumerate(ids):
-                by_id[alliance_id]["position"] = position
+                return jsonify({"errors": {"ids": f"Unknown ids: {', '.join(missing)}"}}), 400
+            for position, item_id in enumerate(ids):
+                by_id[item_id]["position"] = position
             store.save(user_id, data)
         return jsonify([by_id[i] for i in ids])
+
+    @app.put("/api/users/<user_id>/alliances/order")
+    def reorder_alliances(user_id):
+        return reorder(user_id, "alliances")
+
+    @app.put("/api/users/<user_id>/families/order")
+    def reorder_families(user_id):
+        return reorder(user_id, "families")
 
     @app.patch("/api/users/<user_id>/alliances/<alliance_id>")
     def update_alliance(user_id, alliance_id):
@@ -320,25 +432,52 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
             existing = next((a for a in data["alliances"] if a["id"] == alliance_id), None)
             if existing is None:
                 abort(404)
-            # Fields left out of the request keep their current values.
-            fields, errors = validate_alliance({**existing, **payload}, data, existing)
+            # Fields left out of the request keep their current values, except that moving to
+            # another family doesn't carry root status along unless asked for.
+            merged = {**existing, **payload}
+            if "isRoot" not in payload and (merged.get("familyId") or None) != existing["familyId"]:
+                merged["isRoot"] = False
+            fields, errors = validate_alliance(merged, data, existing)
             if errors:
                 return jsonify({"errors": errors}), 400
-            existing.update(fields, updatedAt=_now())
+            apply_alliance(data, existing, {**fields, "updatedAt": _now()})
             store.save(user_id, data)
         return jsonify(existing)
 
     @app.delete("/api/users/<user_id>/alliances/<alliance_id>")
     def delete_alliance(user_id, alliance_id):
-        # Deleting a root also deletes every family/academy alliance under it.
+        """Delete one alliance. If it's the last family alliance of a family that still has
+        academies, the request must say what happens to them: ?academies=delete, or
+        ?academies=move&moveTo=<family id> (another family on the same server)."""
         with store.lock:
             require_user(user_id)
             data = store.load(user_id)
-            alliances = data["alliances"]
-            if not any(a["id"] == alliance_id for a in alliances):
+            target = next((a for a in data["alliances"] if a["id"] == alliance_id), None)
+            if target is None:
                 abort(404)
-            deleted = {a["id"] for a in alliances if a["id"] == alliance_id or a["rootId"] == alliance_id}
-            data["alliances"] = [a for a in alliances if a["id"] not in deleted]
+            deleted = {target["id"]}
+            family_id = target["familyId"]
+            academies = _members(data, family_id, "academy", exclude=target)
+            stranded = target["type"] == "family" and not _members(data, family_id, "family", exclude=target)
+            if stranded and academies:
+                mode = request.args.get("academies")
+                if mode == "delete":
+                    deleted |= {a["id"] for a in academies}
+                elif mode == "move":
+                    dest_id = request.args.get("moveTo")
+                    dest = next((f for f in data["families"] if f["id"] == dest_id), None)
+                    if dest is None or dest_id == family_id or dest["server"] != target["server"]:
+                        return jsonify({"errors": {"moveTo": "Pick another family on the same server."}}), 400
+                    for a in academies:
+                        a["familyId"] = dest_id
+                        a.pop("position", None)
+                else:
+                    return jsonify({
+                        "errors": {"academies": "This family's academies need a new family or must be deleted."},
+                        "academyCount": len(academies),
+                    }), 409
+            data["alliances"] = [a for a in data["alliances"] if a["id"] not in deleted]
+            _tidy_families(data)
             store.save(user_id, data)
         return jsonify({"deleted": sorted(deleted)})
 

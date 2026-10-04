@@ -1,4 +1,4 @@
-export const TYPE_LABELS = { root: "Root", family: "Family", academy: "Academy" };
+export const TYPE_LABELS = { family: "Family", academy: "Academy" };
 
 export const formatAlliance = (a) => `[#${a.tag}][#${a.server}]${a.name}`;
 
@@ -7,10 +7,28 @@ export const charLength = (s) => Array.from(s).length;
 
 export const formatServer = (number) => `Server #${number}`;
 
+// A family has no name of its own; it's known by its root alliance.
+export const familyRoot = (familyId, alliances) =>
+  alliances.find((a) => a.familyId === familyId && a.isRoot) ||
+  alliances.find((a) => a.familyId === familyId);
+
+export const formatFamily = (familyId, alliances) => {
+  const root = familyRoot(familyId, alliances);
+  return root ? `${formatAlliance(root)} family` : "Empty family";
+};
+
+// Deleting this alliance would leave academies with no family alliance: the user must choose.
+export function strandsAcademies(target, alliances) {
+  if (target.type !== "family") return 0;
+  const family = alliances.filter((a) => a.familyId === target.familyId && a.id !== target.id);
+  if (family.some((a) => a.type === "family")) return 0;
+  return family.filter((a) => a.type === "academy").length;
+}
+
 export function allianceDeleteMessage(target, alliances) {
-  const count = alliances.filter((a) => a.rootId === target.id).length;
   let message = `Delete ${formatAlliance(target)}?`;
-  if (count) message += `\n\nThis will also delete its ${count} family/academy alliance(s).`;
+  if (target.isRoot && alliances.some((a) => a.familyId === target.familyId && a.type === "family" && a.id !== target.id))
+    message += "\n\nThe strongest remaining family alliance will become the family's root.";
   return message;
 }
 
@@ -43,3 +61,27 @@ export const byOrder = (a, b) => {
 
 // Highest power first, ignoring any manual arrangement.
 export const byPower = (a, b) => byOrder({ ...a, position: null }, { ...b, position: null });
+
+// Families on a server: user-arranged position first, then their roots' order.
+export function sortFamilies(families, alliances) {
+  const rootOf = new Map(families.map((f) => [f.id, familyRoot(f.id, alliances)]));
+  return [...families].sort((a, b) => {
+    const pa = a.position ?? Infinity;
+    const pb = b.position ?? Infinity;
+    if (pa !== pb) return pa - pb;
+    const ra = rootOf.get(a.id);
+    const rb = rootOf.get(b.id);
+    if (!ra || !rb) return ra ? -1 : rb ? 1 : 0;
+    return byPower(ra, rb);
+  });
+}
+
+// A family's alliances: its root, the other family alliances, then academies, in display order.
+export function familyMembers(familyId, alliances) {
+  const members = alliances.filter((a) => a.familyId === familyId);
+  return {
+    root: members.find((a) => a.isRoot) ?? null,
+    families: members.filter((a) => a.type === "family" && !a.isRoot).sort(byOrder),
+    academies: members.filter((a) => a.type === "academy").sort(byOrder),
+  };
+}

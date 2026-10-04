@@ -1,18 +1,25 @@
 # AllyGraph
 
 A single-page site for tracking alliances and how they relate, drawn as an interactive D3 graph.
-Each server is a box of root umbrellas; each umbrella is a tree with the root on top, families down
-the left branch and academies down the right. Drag nodes to reorder them (members within their branch,
-roots to move their umbrella), and click an umbrella to see and edit its members.
+
+Alliances are grouped into **families**:
+
+- **Family** alliances are the members of a family, as equals. Creating one either joins an existing
+  family or, with no family chosen, starts a new family with it as the first member.
+- One family alliance in each family is its **root**; the family is known by it. Setting root on another
+  family alliance moves it there. If the root is deleted or leaves, the strongest remaining family
+  alliance (by power) becomes root.
+- **Academy** alliances must belong to an existing family. Deleting a family's last family alliance
+  while it has academies asks whether to move them to another family or delete them.
+
+Each server is a box of families. In each family box the family alliances form the top row (root first,
+in amber) and the academies hang below. Drag nodes sideways to reorder them; drag a root to move its whole
+family. Click a family to see and edit its alliances in a side panel.
 
 Alliances can carry free-form notes (up to 200,000 characters), stored exactly as typed, and a
 **power** (a whole number from 0 to 2^64-1, shown as e.g. `1,200,000`). Power travels as a digit string
 because browsers can't represent integers that large exactly. Alliances are ordered by power (highest
-first) unless you rearrange them by dragging; "Sort by power" in the umbrella panel undoes that.
-
-- **Root** alliances sit at the top of an umbrella.
-- **Family** alliances are equal members under a root.
-- **Academy** alliances are protected members under a root.
+first) unless you rearrange them by dragging; "Sort by power" in the family panel undoes that.
 
 Each alliance belongs to a **server/kingdom** (a 4-digit number) and is shown as
 `[#TAG][#SERVER]Name`, e.g. `[#G~4][#4180]Path of Exiles`. Alliances can only be related to alliances
@@ -67,6 +74,13 @@ This uses `.venv/bin/python` directly, so the venv doesn't need to be activated.
 (e.g. on Windows), activate the venv and run `cd web && npm run build && cd ..` then
 `python server/app.py`. Data persists in `data/users/`.
 
+Data written by older versions (e.g. before families replaced root alliances) is upgraded
+automatically the first time it's loaded. To upgrade everything up front, with a backup, run:
+
+```sh
+make migrate                         # copies data/users to data/backup-*-premigrate.bak, then upgrades
+```
+
 To start over with no users, servers or alliances, run `make reset-data`. It asks for confirmation and
 moves the old data into a timestamped `data/backup-*.bak` folder.
 
@@ -114,11 +128,14 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | ------ | ------------------------ | ------------------------------------------------------------------------- |
 | GET    | `/api/users`             | List of users                                                             |
 | POST   | `/api/users`             | `{name}` (1-64 chars, unique) → `201` user, or `400 {errors}`              |
+| GET    | `<u>/graph`              | `{servers, families, alliances}` — everything the page needs              |
 | GET    | `<u>/servers`            | List of servers                                                           |
 | POST   | `<u>/servers`            | `{number}` (4 digits) → `201` server, or `400 {errors}`                    |
-| DELETE | `<u>/servers/<number>`   | `{deleted: [alliance ids]}` — deleting a server deletes all its alliances |
+| DELETE | `<u>/servers/<number>`   | `{deleted: [alliance ids]}` — also deletes the server's families and alliances |
+| GET    | `<u>/families`           | List of families (`{id, server, position?}`)                              |
+| PUT    | `<u>/families/order`     | `{ids: [...]}` → sets each family's display position to its index          |
 | GET    | `<u>/alliances`          | List of alliances                                                         |
-| POST   | `<u>/alliances`          | `{name, tag, server, type, rootId, power?, notes?}` → `201` alliance, or `400 {errors}`    |
+| POST   | `<u>/alliances`          | `{name, tag, server, type: family\|academy, familyId, isRoot?, power?, notes?}` → `201` alliance. `familyId: null` on a family alliance starts a new family |
 | PUT    | `<u>/alliances/order`    | `{ids: [...]}` → sets each alliance's display position to its index        |
-| PATCH  | `<u>/alliances/<id>`     | Any of `{name, tag, type, rootId, power, notes}` → updated alliance. Server is fixed; roots stay roots |
-| DELETE | `<u>/alliances/<id>`     | `{deleted: [ids]}` — deleting a root also deletes its members             |
+| PATCH  | `<u>/alliances/<id>`     | Any of `{name, tag, type, familyId, isRoot, power, notes}` → updated alliance. Server is fixed |
+| DELETE | `<u>/alliances/<id>`     | `{deleted: [ids]}`. For a family's last family alliance with academies, add `?academies=delete` or `?academies=move&moveTo=<family id>` (otherwise `409`) |

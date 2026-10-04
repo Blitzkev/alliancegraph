@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
 import { createAlliance } from "../api";
-import { charLength, formatAlliance, formatServer, parsePower, TYPE_LABELS } from "../format";
+import {
+  charLength,
+  familyRoot,
+  formatAlliance,
+  formatFamily,
+  formatServer,
+  parsePower,
+  sortFamilies,
+  TYPE_LABELS,
+} from "../format";
 import NotesField, { notesError } from "./NotesField";
 import PowerField, { powerError } from "./PowerField";
 
-function validate({ name, tag, power, notes }, server, needsRoot, rootId) {
+export const NEW_FAMILY = "";
+
+function validate({ name, tag, power, notes }, server, isAcademy, familyId) {
   const errors = {};
   const n = charLength(name.trim());
   const t = charLength(tag.trim());
@@ -13,7 +24,7 @@ function validate({ name, tag, power, notes }, server, needsRoot, rootId) {
   if (t === 0) errors.tag = "Tag is required.";
   else if (t > 4) errors.tag = "Tag must be 1-4 characters.";
   if (!server) errors.server = "Select a server.";
-  if (needsRoot && !rootId) errors.rootId = "Select a root alliance.";
+  if (isAcademy && !familyId) errors.familyId = "Select a family.";
   const powerProblem = powerError(power);
   if (powerProblem) errors.power = powerProblem;
   const notesProblem = notesError(notes);
@@ -21,27 +32,76 @@ function validate({ name, tag, power, notes }, server, needsRoot, rootId) {
   return errors;
 }
 
-export default function AllianceModal({ userId, type, servers, roots, onSaved, onClose }) {
-  const needsRoot = type !== "root";
+// Family picker shared by the create and edit modals.
+export function FamilySelect({ value, onChange, families, alliances, allowNew, error }) {
+  return (
+    <label>
+      Family
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {allowNew ? (
+          <option value={NEW_FAMILY}>New family (this alliance becomes its root)</option>
+        ) : (
+          <option value="">Select a family…</option>
+        )}
+        {families.map((f) => (
+          <option key={f.id} value={f.id}>
+            {formatFamily(f.id, alliances)}
+          </option>
+        ))}
+      </select>
+      {error && <span className="error">{error}</span>}
+    </label>
+  );
+}
+
+export function RootCheckbox({ checked, onChange, familyId, alliances, locked }) {
+  const current = familyRoot(familyId, alliances);
+  return (
+    <label className="checkbox">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={locked}
+      />
+      <span>
+        Root of the family
+        <small>
+          {locked
+            ? " (set root on another family alliance to change it)"
+            : current && ` (replaces ${formatAlliance(current)})`}
+        </small>
+      </span>
+    </label>
+  );
+}
+
+export default function AllianceModal({ userId, type, servers, families, alliances, onSaved, onClose }) {
+  const isAcademy = type === "academy";
   const blocker =
     servers.length === 0
       ? "A Server/Kingdom must exist before you can create an alliance."
-      : needsRoot && roots.length === 0
-        ? `A Root Alliance must exist before you can create a ${TYPE_LABELS[type]} Alliance.`
+      : isAcademy && families.length === 0
+        ? "A Family Alliance must exist before you can create an Academy Alliance."
         : null;
 
   const [fields, setFields] = useState({ name: "", tag: "", power: "", notes: "" });
   const [server, setServer] = useState(servers.length === 1 ? servers[0] : "");
-  const [rootId, setRootId] = useState("");
+  const [familyId, setFamilyId] = useState(NEW_FAMILY);
+  const [isRoot, setIsRoot] = useState(false);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
   // Alliances can only be related on the same server.
-  const serverRoots = roots.filter((r) => r.server === server);
-  const noRootsOnServer = needsRoot && server && serverRoots.length === 0;
+  const serverFamilies = sortFamilies(
+    families.filter((f) => f.server === server),
+    alliances,
+  );
+  const noFamiliesOnServer = isAcademy && Boolean(server) && serverFamilies.length === 0;
 
   useEffect(() => {
-    setRootId(serverRoots.length === 1 ? serverRoots[0].id : "");
+    setFamilyId(isAcademy && serverFamilies.length === 1 ? serverFamilies[0].id : NEW_FAMILY);
+    setIsRoot(false);
   }, [server]);
 
   useEffect(() => {
@@ -54,19 +114,20 @@ export default function AllianceModal({ userId, type, servers, roots, onSaved, o
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const found = validate(fields, server, needsRoot, rootId);
+    const found = validate(fields, server, isAcademy, familyId);
     setErrors(found);
     if (Object.keys(found).length) return;
     setSaving(true);
     try {
-      const saved = await createAlliance(userId, {
+      await createAlliance(userId, {
         ...fields,
         power: parsePower(fields.power),
         server,
         type,
-        rootId: needsRoot ? rootId : null,
+        familyId: familyId || null,
+        isRoot: !isAcademy && Boolean(familyId) && isRoot,
       });
-      onSaved(saved);
+      onSaved();
     } catch (err) {
       setErrors(err.errors);
       setSaving(false);
@@ -100,30 +161,26 @@ export default function AllianceModal({ userId, type, servers, roots, onSaved, o
               {errors.server && <span className="error">{errors.server}</span>}
             </label>
 
-            {needsRoot && (
-              <label>
-                Root alliance
-                <select
-                  value={rootId}
-                  onChange={(e) => setRootId(e.target.value)}
-                  disabled={!server || noRootsOnServer}
-                >
-                  <option value="">
-                    {server ? "Select a root alliance…" : "Select a server first"}
-                  </option>
-                  {serverRoots.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {formatAlliance(r)}
-                    </option>
-                  ))}
-                </select>
-                {noRootsOnServer && (
-                  <span className="error">
-                    {formatServer(server)} has no root alliances. Create one there first.
-                  </span>
-                )}
-                {errors.rootId && <span className="error">{errors.rootId}</span>}
-              </label>
+            {server && !noFamiliesOnServer && (
+              <FamilySelect
+                value={familyId}
+                onChange={(id) => {
+                  setFamilyId(id);
+                  setIsRoot(false);
+                }}
+                families={serverFamilies}
+                alliances={alliances}
+                allowNew={!isAcademy}
+                error={errors.familyId}
+              />
+            )}
+            {noFamiliesOnServer && (
+              <p className="error">
+                {formatServer(server)} has no families. Create a Family Alliance there first.
+              </p>
+            )}
+            {!isAcademy && familyId && (
+              <RootCheckbox checked={isRoot} onChange={setIsRoot} familyId={familyId} alliances={alliances} />
             )}
 
             <label>
@@ -151,7 +208,9 @@ export default function AllianceModal({ userId, type, servers, roots, onSaved, o
             />
 
             {preview && <p className="preview">{preview}</p>}
-            {errors._ && <p className="error">{errors._}</p>}
+            {(errors._ || errors.isRoot || errors.type) && (
+              <p className="error">{errors._ || errors.isRoot || errors.type}</p>
+            )}
           </>
         )}
 
@@ -162,7 +221,7 @@ export default function AllianceModal({ userId, type, servers, roots, onSaved, o
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={Boolean(blocker) || noRootsOnServer || saving}
+            disabled={Boolean(blocker) || noFamiliesOnServer || saving}
           >
             {saving ? "Saving…" : "Save Alliance"}
           </button>
