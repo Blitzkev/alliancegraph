@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import { deleteAlliance, updateAlliance } from "../api";
-import { allianceDeleteMessage, charLength, formatAlliance, formatServer, TYPE_LABELS } from "../format";
+import {
+  allianceDeleteMessage,
+  charLength,
+  formatAlliance,
+  formatPower,
+  formatServer,
+  parsePower,
+  TYPE_LABELS,
+} from "../format";
 import NotesField, { notesError } from "./NotesField";
+import PowerField, { powerError } from "./PowerField";
 
 export default function EditAllianceModal({ userId, alliance, alliances, onSaved, onDeleted, onClose }) {
   const isRoot = alliance.type === "root";
@@ -13,6 +22,7 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
     tag: alliance.tag,
     type: alliance.type,
     rootId: alliance.rootId || "",
+    power: formatPower(alliance.power),
     notes: alliance.notes ?? "",
   });
   const [errors, setErrors] = useState({});
@@ -36,6 +46,8 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
     if (t === 0) found.tag = "Tag is required.";
     else if (t > 4) found.tag = "Tag must be 1-4 characters.";
     if (!isRoot && !fields.rootId) found.rootId = "Select a root alliance.";
+    const powerProblem = powerError(fields.power);
+    if (powerProblem) found.power = powerProblem;
     const notesProblem = notesError(fields.notes);
     if (notesProblem) found.notes = notesProblem;
     setErrors(found);
@@ -43,7 +55,7 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
 
     setBusy(true);
     try {
-      const body = { name: fields.name, tag: fields.tag, notes: fields.notes };
+      const body = { name: fields.name, tag: fields.tag, power: parsePower(fields.power), notes: fields.notes };
       if (!isRoot) Object.assign(body, { type: fields.type, rootId: fields.rootId });
       onSaved(await updateAlliance(userId, alliance.id, body));
     } catch (err) {
@@ -123,6 +135,12 @@ export default function EditAllianceModal({ userId, alliance, alliances, onSaved
           <input value={fields.tag} onChange={set("tag")} />
           {errors.tag && <span className="error">{errors.tag}</span>}
         </label>
+
+        <PowerField
+          value={fields.power}
+          onChange={(power) => setFields((f) => ({ ...f, power }))}
+          error={errors.power}
+        />
 
         <NotesField
           value={fields.notes}

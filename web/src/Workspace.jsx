@@ -192,6 +192,7 @@ export default function Workspace({ user, onSwitchUser }) {
             root={selectedRoot}
             alliances={alliances}
             onEdit={(a) => setEditingId(a.id)}
+            onReorder={handleReorder}
             onClose={() => setSelectedRootId(null)}
           />
         )}

@@ -310,3 +310,30 @@ def test_update_notes(client):
     # Other edits leave notes alone.
     res = client.patch(f"/alliances/{root['id']}", json={"name": "Renamed"})
     assert res.get_json()["notes"] == "  new\n"
+
+
+# --- power ---
+
+
+def test_power_defaults_to_zero(client):
+    assert make(client).get_json()["power"] == "0"
+
+
+@pytest.mark.parametrize(
+    "given, stored",
+    [("1200000", "1200000"), ("1,200,000", "1200000"), (" 1 200_000 ", "1200000"), (42, "42"), ("007", "7"),
+     ("9223372036854775807", "9223372036854775807")],
+)
+def test_power_is_stored_as_canonical_digit_string(client, given, stored):
+    assert make(client, power=given).get_json()["power"] == stored
+
+
+@pytest.mark.parametrize("power", ["-1", -1, "1.5", 1.5, "abc", "9223372036854775808", True, [1]])
+def test_bad_power_rejected(client, power):
+    assert "power" in make(client, power=power).get_json()["errors"]
+
+
+def test_update_power(client):
+    root = make(client, power="5").get_json()
+    assert client.patch(f"/alliances/{root['id']}", json={"power": "1,000"}).get_json()["power"] == "1000"
+    assert client.patch(f"/alliances/{root['id']}", json={"name": "X"}).get_json()["power"] == "1000"

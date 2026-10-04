@@ -21,6 +21,7 @@ NAME_MAX = 256
 TAG_MAX = 4
 USER_NAME_MAX = 64
 NOTES_MAX = 200_000
+POWER_MAX = 2**63 - 1  # signed 64-bit bigint
 SERVER_RE = re.compile(r"^[0-9]{4}$")
 USER_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -104,6 +105,28 @@ def _clean_server(value):
     return value if value and SERVER_RE.match(value) else None
 
 
+def _clean_power(value):
+    """Parse power to a canonical digit string ("0" if missing), or None if invalid.
+
+    Kept as a string in JSON because browsers can't represent integers above 2**53 exactly.
+    Commas, underscores and spaces are allowed as digit separators.
+    """
+    if value is None or value == "":
+        return "0"
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str):
+        digits = re.sub(r"[,_\s]", "", value)
+        if not re.fullmatch(r"[0-9]+", digits):
+            return None
+        number = int(digits)
+    else:
+        return None
+    return str(number) if 0 <= number <= POWER_MAX else None
+
+
 def validate_alliance(payload, data, existing=None):
     """Return (alliance_fields, errors). errors maps field name -> message.
 
@@ -155,11 +178,15 @@ def validate_alliance(payload, data, existing=None):
     elif len(notes) > NOTES_MAX:
         errors["notes"] = f"Notes must be at most {NOTES_MAX:,} characters."
 
+    power = _clean_power(payload.get("power"))
+    if power is None:
+        errors["power"] = f"Power must be a whole number from 0 to {POWER_MAX:,}."
+
     if "tag" not in errors and "server" not in errors:
         if any(a["server"] == server and a["tag"] == tag for a in others):
             errors["tag"] = f"Tag [#{tag}] is already used on server {server}."
 
-    fields = {"name": name, "tag": tag, "server": server, "type": kind, "rootId": root_id, "notes": notes}
+    fields = {"name": name, "tag": tag, "server": server, "type": kind, "rootId": root_id, "notes": notes, "power": power}
     return fields, errors
 
 

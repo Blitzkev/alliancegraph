@@ -1,4 +1,4 @@
-import { byOrder, formatAlliance, formatServer } from "../format";
+import { byOrder, byPower, formatAlliance, formatPower, formatServer } from "../format";
 
 function Item({ alliance, onEdit }) {
   return (
@@ -8,6 +8,7 @@ function Item({ alliance, onEdit }) {
       title="Click to edit or delete"
     >
       {formatAlliance(alliance)}
+      <span className="tree-power">{formatPower(alliance.power)}</span>
     </button>
   );
 }
@@ -36,10 +37,14 @@ function Group({ label, type, members, onEdit }) {
 }
 
 // Tree of one root umbrella: the root, then its families and academies.
-export default function UmbrellaPanel({ root, alliances, onEdit, onClose }) {
+export default function UmbrellaPanel({ root, alliances, onEdit, onReorder, onClose }) {
   const members = alliances.filter((a) => a.rootId === root.id);
   const families = members.filter((a) => a.type === "family").sort(byOrder);
   const academies = members.filter((a) => a.type === "academy").sort(byOrder);
+
+  // Undo any manual arrangement: both branches back to highest power first.
+  const powerOrder = [...families].sort(byPower).concat([...academies].sort(byPower));
+  const isPowerOrder = powerOrder.every((a, i) => a.id === [...families, ...academies][i].id);
 
   return (
     <aside className="umbrella-panel">
@@ -63,6 +68,16 @@ export default function UmbrellaPanel({ root, alliances, onEdit, onClose }) {
           </ul>
         </li>
       </ul>
+      <div className="panel-actions">
+        <button
+          className="btn btn-secondary"
+          onClick={() => onReorder(powerOrder.map((a) => a.id))}
+          disabled={isPowerOrder}
+          title={isPowerOrder ? "Already sorted by power" : "Sort families and academies by power"}
+        >
+          Sort by power
+        </button>
+      </div>
       <p className="panel-hint">Click an alliance to edit or delete it.</p>
     </aside>
   );

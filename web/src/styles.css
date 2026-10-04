@@ -244,6 +244,14 @@ select, input {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+.tree-power {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.panel-actions { margin-top: 12px; }
 .tree-empty { padding: 4px 6px; color: var(--muted); font-size: 0.8rem; font-style: italic; }
 .type-root { color: #b45309; font-weight: 700; }
 .type-family { color: var(--family); }

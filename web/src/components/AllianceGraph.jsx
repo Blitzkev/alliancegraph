@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
-import { byOrder, formatAlliance, formatServer, TYPE_LABELS } from "../format";
+import { byOrder, formatAlliance, formatPower, formatServer, TYPE_LABELS } from "../format";
 
 const NODE = {
   root: { r: 22, color: "#d97706" },
@@ -222,6 +222,7 @@ export default function AllianceGraph({ servers, alliances, selectedUmbrella, on
         y,
         title: formatAlliance(a),
         type: TYPE_LABELS[a.type],
+        power: formatPower(a.power),
         root: root ? formatAlliance(root) : null,
         members: a.type === "root" ? alliances.filter((m) => m.rootId === a.id).length : null,
       });
@@ -354,6 +355,7 @@ export default function AllianceGraph({ servers, alliances, selectedUmbrella, on
         <div className="tooltip" style={{ left: tooltip.x + 14, top: tooltip.y + 14 }}>
           <strong>{tooltip.title}</strong>
           <div>{tooltip.type} alliance</div>
+          <div>Power: {tooltip.power}</div>
           {tooltip.root && <div>Under: {tooltip.root}</div>}
           {tooltip.members !== null && <div>Members: {tooltip.members}</div>}
         </div>
