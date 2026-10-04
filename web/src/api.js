@@ -33,3 +33,9 @@ export const listAlliances = (userId) => request(`${userBase(userId)}/alliances`
 export const createAlliance = (userId, alliance) => post(`${userBase(userId)}/alliances`, alliance);
 export const deleteAlliance = (userId, id) =>
   del(`${userBase(userId)}/alliances/${encodeURIComponent(id)}`);
+export const updateAlliance = (userId, id, fields) =>
+  request(`${userBase(userId)}/alliances/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  });

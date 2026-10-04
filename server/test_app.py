@@ -18,6 +18,9 @@ class UserClient:
     def post(self, path, **kwargs):
         return self.client.post(self.prefix + path, **kwargs)
 
+    def patch(self, path, **kwargs):
+        return self.client.patch(self.prefix + path, **kwargs)
+
     def delete(self, path):
         return self.client.delete(self.prefix + path)
 
@@ -198,3 +201,51 @@ def test_delete_root_cascades(client):
 def test_delete_missing_is_404(client):
     assert client.delete("/alliances/nope").status_code == 404
     assert client.delete("/servers/9999").status_code == 404
+
+
+# --- updating alliances ---
+
+
+def test_update_name_and_tag(client):
+    root = make(client).get_json()
+    res = client.patch(f"/alliances/{root['id']}", json={"name": "Renamed", "tag": "NEW"})
+    assert res.status_code == 200
+    updated = res.get_json()
+    assert (updated["name"], updated["tag"], updated["server"]) == ("Renamed", "NEW", "4180")
+    assert client.get("/alliances").get_json() == [updated]
+
+
+def test_update_keeping_own_tag_is_allowed(client):
+    root = make(client).get_json()
+    res = client.patch(f"/alliances/{root['id']}", json={"name": "Same tag"})
+    assert res.status_code == 200
+
+
+def test_update_rejects_tag_used_by_another(client):
+    make(client, tag="TAKE")
+    root = make(client).get_json()
+    res = client.patch(f"/alliances/{root['id']}", json={"tag": "TAKE"})
+    assert "tag" in res.get_json()["errors"]
+
+
+def test_update_moves_member_and_changes_type(client):
+    r1 = make(client).get_json()
+    r2 = make(client, tag="R2").get_json()
+    fam = make(client, type="family", tag="F1", rootId=r1["id"]).get_json()
+    res = client.patch(f"/alliances/{fam['id']}", json={"type": "academy", "rootId": r2["id"]})
+    assert (res.get_json()["type"], res.get_json()["rootId"]) == ("academy", r2["id"])
+
+
+def test_update_cannot_change_server_or_root_status(client):
+    root = make(client).get_json()
+    fam = make(client, type="family", tag="F1", rootId=root["id"]).get_json()
+    patch = lambda a, body: client.patch(f"/alliances/{a['id']}", json=body)
+    assert patch(root, {"server": "4181"}).get_json()["server"] == "4180"
+    assert "type" in patch(root, {"type": "family", "rootId": root["id"]}).get_json()["errors"]
+    assert "type" in patch(fam, {"type": "root"}).get_json()["errors"]
+    other = make(client, server="4181", tag="R9").get_json()
+    assert "rootId" in patch(fam, {"rootId": other["id"]}).get_json()["errors"]
+
+
+def test_update_missing_is_404(client):
+    assert client.patch(f"/alliances/nope", json={}).status_code == 404

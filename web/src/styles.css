@@ -99,9 +99,11 @@ select, input {
   padding: 10px 12px;
 }
 
-/* Graph */
+/* Graph + side panel */
+.workspace { flex: 1; display: flex; gap: 16px; min-height: 420px; }
 .graph-panel {
   flex: 1;
+  min-width: 0;
   min-height: 420px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -161,6 +163,102 @@ select, input {
 }
 
 .node, line, .link-label, .umbrella { transition: opacity 0.2s; }
+.umbrella { cursor: pointer; }
+.umbrella.selected { stroke-opacity: 1; stroke-width: 3; }
+
+/* Root umbrella breakdown */
+.umbrella-panel {
+  width: 340px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+.umbrella-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.umbrella-panel h2 { margin: 0; font-size: 1rem; }
+.umbrella-panel small { color: var(--muted); }
+.icon-btn {
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.icon-btn:hover { color: var(--text); }
+.panel-hint { color: var(--muted); font-size: 0.75rem; margin: 12px 0 0; }
+
+/* Tree with connector lines, like an ASCII tree */
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { margin-left: 10px; }
+.tree ul > li { position: relative; padding-left: 18px; }
+.tree ul > li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px solid #cbd5e1;
+}
+.tree ul > li:last-child::before { bottom: auto; height: 14px; }
+.tree ul > li::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  width: 12px;
+  border-top: 1.5px solid #cbd5e1;
+}
+.tree-item {
+  display: inline-block;
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  word-break: break-word;
+  cursor: pointer;
+}
+.tree-item:hover { background: var(--bg); text-decoration: underline; }
+.tree-group {
+  display: inline-block;
+  padding: 4px 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tree-empty { padding: 4px 6px; color: var(--muted); font-size: 0.8rem; font-style: italic; }
+.type-root { color: #b45309; font-weight: 700; }
+.type-family { color: var(--family); }
+.type-academy { color: var(--academy); }
+.tree-item::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 6px;
+}
+
+/* Edit modal extras */
+.modal-note { margin: 0 0 12px; font-weight: 600; font-size: 0.9rem; }
+.modal-note small { font-weight: 400; color: var(--muted); }
+.type-choice { border: none; padding: 0; margin: 0 0 12px; display: flex; gap: 16px; }
+.type-choice legend { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; padding: 0; }
+.modal label.radio { flex-direction: row; align-items: center; gap: 6px; margin: 0; flex: none; }
+.push-left { margin-right: auto; }
 .dimmed { opacity: 0.12; }
 
 .legend {
@@ -234,6 +332,11 @@ select, input {
   margin: 0 0 12px;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+@media (max-width: 900px) {
+  .workspace { flex-direction: column; }
+  .umbrella-panel { width: auto; }
+}
 
 @media (max-width: 600px) {
   .app { padding: 0 12px 12px; }

@@ -6,3 +6,10 @@ export const formatAlliance = (a) => `[#${a.tag}][#${a.server}]${a.name}`;
 export const charLength = (s) => Array.from(s).length;
 
 export const formatServer = (number) => `Server #${number}`;
+
+export function allianceDeleteMessage(target, alliances) {
+  const count = alliances.filter((a) => a.rootId === target.id).length;
+  let message = `Delete ${formatAlliance(target)}?`;
+  if (count) message += `\n\nThis will also delete its ${count} family/academy alliance(s).`;
+  return message;
+}

@@ -103,10 +103,15 @@ def _clean_server(value):
     return value if value and SERVER_RE.match(value) else None
 
 
-def validate_alliance(payload, data):
-    """Return (alliance_fields, errors). errors maps field name -> message."""
+def validate_alliance(payload, data, existing=None):
+    """Return (alliance_fields, errors). errors maps field name -> message.
+
+    With `existing`, validates an update to that alliance: its server is fixed, and it can't
+    switch between root and member (that would orphan members or break the hierarchy).
+    """
     errors = {}
     alliances = data["alliances"]
+    others = [a for a in alliances if existing is None or a["id"] != existing["id"]]
 
     name = _clean_text(payload.get("name"))
     if not name:
@@ -120,13 +125,15 @@ def validate_alliance(payload, data):
     elif len(tag) > TAG_MAX:
         errors["tag"] = f"Tag must be 1-{TAG_MAX} characters."
 
-    server = _clean_server(payload.get("server"))
+    server = existing["server"] if existing else _clean_server(payload.get("server"))
     if server is None or not any(s["number"] == server for s in data["servers"]):
         errors["server"] = "Select an existing server."
 
     kind = payload.get("type")
     if kind not in TYPES:
         errors["type"] = f"Type must be one of: {', '.join(TYPES)}."
+    elif existing and (kind == "root") != (existing["type"] == "root"):
+        errors["type"] = "A root alliance can't become a member, or a member a root."
 
     root_id = payload.get("rootId")
     if kind == "root":
@@ -139,7 +146,7 @@ def validate_alliance(payload, data):
             errors["rootId"] = f"The root alliance must be on server {server}."
 
     if "tag" not in errors and "server" not in errors:
-        if any(a["server"] == server and a["tag"] == tag for a in alliances):
+        if any(a["server"] == server and a["tag"] == tag for a in others):
             errors["tag"] = f"Tag [#{tag}] is already used on server {server}."
 
     fields = {"name": name, "tag": tag, "server": server, "type": kind, "rootId": root_id}
@@ -243,6 +250,25 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
             data["alliances"].append(alliance)
             store.save(user_id, data)
         return jsonify(alliance), 201
+
+    @app.patch("/api/users/<user_id>/alliances/<alliance_id>")
+    def update_alliance(user_id, alliance_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return bad_body()
+        with store.lock:
+            require_user(user_id)
+            data = store.load(user_id)
+            existing = next((a for a in data["alliances"] if a["id"] == alliance_id), None)
+            if existing is None:
+                abort(404)
+            # Fields left out of the request keep their current values.
+            fields, errors = validate_alliance({**existing, **payload}, data, existing)
+            if errors:
+                return jsonify({"errors": errors}), 400
+            existing.update(fields, updatedAt=_now())
+            store.save(user_id, data)
+        return jsonify(existing)
 
     @app.delete("/api/users/<user_id>/alliances/<alliance_id>")
     def delete_alliance(user_id, alliance_id):

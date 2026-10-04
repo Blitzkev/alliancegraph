@@ -68,13 +68,19 @@ function regionHull(members, padding) {
 
 const hullPath = (hull) => (hull ? d3.line().curve(d3.curveCatmullRomClosed.alpha(0.5))(hull) : null);
 
-export default function AllianceGraph({ servers, alliances }) {
+export default function AllianceGraph({ servers, alliances, selectedUmbrella, onSelectUmbrella }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
   const positions = useRef(new Map()); // id -> {x, y}, kept across re-renders
   const zoomTransform = useRef(d3.zoomIdentity);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [tooltip, setTooltip] = useState(null);
+  // Refs so selection changes don't rebuild the whole graph.
+  const spotlightRef = useRef(null);
+  const selectedRef = useRef(selectedUmbrella);
+  const onSelectRef = useRef(onSelectUmbrella);
+  selectedRef.current = selectedUmbrella;
+  onSelectRef.current = onSelectUmbrella;
 
   useEffect(() => {
     const ro = new ResizeObserver(([entry]) => {
@@ -220,19 +226,25 @@ export default function AllianceGraph({ servers, alliances }) {
       })
       .on("mouseleave", () => setTooltip(null));
 
-    // Click a node to spotlight its umbrella; click the background to clear.
+    // Click an umbrella region (or a node in it) to select it; click the background to clear.
     const spotlight = (umbrellaId) => {
       const dim = (d) => umbrellaId && d !== umbrellaId;
       node.classed("dimmed", (n) => dim(n.umbrella));
       link.classed("dimmed", (l) => dim(l.source.umbrella));
       linkLabel.classed("dimmed", (l) => dim(l.source.umbrella));
-      hull.classed("dimmed", (u) => dim(u.id));
+      hull.classed("dimmed", (u) => dim(u.id)).classed("selected", (u) => u.id === umbrellaId);
     };
+    spotlightRef.current = spotlight;
+    spotlight(selectedRef.current);
     node.on("click", (event, n) => {
       event.stopPropagation();
-      spotlight(n.umbrella);
+      onSelectRef.current(n.umbrella);
     });
-    svg.on("click", () => spotlight(null));
+    hull.on("click", (event, u) => {
+      event.stopPropagation();
+      onSelectRef.current(u.id);
+    });
+    svg.on("click", () => onSelectRef.current(null));
 
     const CHARGE = { server: -2500, root: -900, family: -300, academy: -300 };
     const simulation = d3
@@ -300,6 +312,10 @@ export default function AllianceGraph({ servers, alliances }) {
     return () => simulation.stop();
   }, [servers, alliances, size]);
 
+  useEffect(() => {
+    spotlightRef.current?.(selectedUmbrella);
+  }, [selectedUmbrella]);
+
   return (
     <div className="graph" ref={wrapRef}>
       <svg ref={svgRef} />
@@ -361,7 +377,7 @@ function Legend() {
         </svg>
         Server/Kingdom
       </div>
-      <div className="legend-hint">Drag nodes · scroll to zoom · click to highlight</div>
+      <div className="legend-hint">Drag nodes · scroll to zoom · click a root umbrella for details</div>
     </div>
   );
 }

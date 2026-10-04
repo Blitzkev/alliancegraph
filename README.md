@@ -111,4 +111,5 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | DELETE | `<u>/servers/<number>`   | `{deleted: [alliance ids]}` — deleting a server deletes all its alliances |
 | GET    | `<u>/alliances`          | List of alliances                                                         |
 | POST   | `<u>/alliances`          | `{name, tag, server, type, rootId}` → `201` alliance, or `400 {errors}`    |
+| PATCH  | `<u>/alliances/<id>`     | Any of `{name, tag, type, rootId}` → updated alliance. Server is fixed; roots stay roots |
 | DELETE | `<u>/alliances/<id>`     | `{deleted: [ids]}` — deleting a root also deletes its members             |

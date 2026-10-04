@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { listAlliances, listServers, deleteAlliance, deleteServer } from "./api";
-import { formatAlliance, formatServer, TYPE_LABELS } from "./format";
+import { allianceDeleteMessage, formatAlliance, formatServer, TYPE_LABELS } from "./format";
 import AllianceModal from "./components/AllianceModal";
 import ServerModal from "./components/ServerModal";
 import AllianceGraph from "./components/AllianceGraph";
+import EditAllianceModal from "./components/EditAllianceModal";
+import UmbrellaPanel from "./components/UmbrellaPanel";
 
 export default function Workspace({ user, onSwitchUser }) {
   const [servers, setServers] = useState([]);
@@ -12,6 +14,8 @@ export default function Workspace({ user, onSwitchUser }) {
   const [modal, setModal] = useState(null); // "server" | alliance type | null
   const [deleteKey, setDeleteKey] = useState("");
   const [deleteError, setDeleteError] = useState(null);
+  const [selectedRootId, setSelectedRootId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
 
   useEffect(() => {
     Promise.all([listServers(user.id), listAlliances(user.id)])
@@ -28,6 +32,19 @@ export default function Workspace({ user, onSwitchUser }) {
 
   const sortedServers = useMemo(() => [...servers].sort(), [servers]);
   const roots = alliances.filter((a) => a.type === "root");
+  // Derived, so a deleted root closes its panel / an alliance deleted elsewhere closes its editor.
+  const selectedRoot = roots.find((r) => r.id === selectedRootId) || null;
+  const editing = alliances.find((a) => a.id === editingId) || null;
+
+  const handleAllianceUpdated = (updated) => {
+    setAlliances((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    setEditingId(null);
+  };
+
+  const handleAlliancesDeleted = (deleted) => {
+    setAlliances((prev) => prev.filter((a) => !deleted.includes(a.id)));
+    setEditingId(null);
+  };
 
   const handleAllianceSaved = (alliance) => {
     setAlliances((prev) => [...prev, alliance]);
@@ -51,9 +68,7 @@ export default function Workspace({ user, onSwitchUser }) {
     } else {
       const target = alliances.find((a) => a.id === key);
       if (!target) return;
-      const count = alliances.filter((a) => a.rootId === target.id).length;
-      message = `Delete ${formatAlliance(target)}?`;
-      if (count) message += `\n\nThis will also delete its ${count} family/academy alliance(s).`;
+      message = allianceDeleteMessage(target, alliances);
       remove = () => deleteAlliance(user.id, key);
     }
     if (!window.confirm(message)) return;
@@ -146,8 +161,23 @@ export default function Workspace({ user, onSwitchUser }) {
 
       {loadError && <p className="error banner">{loadError}</p>}
 
-      <main className="graph-panel">
-        <AllianceGraph servers={sortedServers} alliances={alliances} />
+      <main className="workspace">
+        <div className="graph-panel">
+          <AllianceGraph
+            servers={sortedServers}
+            alliances={alliances}
+            selectedUmbrella={selectedRoot?.id ?? null}
+            onSelectUmbrella={setSelectedRootId}
+          />
+        </div>
+        {selectedRoot && (
+          <UmbrellaPanel
+            root={selectedRoot}
+            alliances={alliances}
+            onEdit={(a) => setEditingId(a.id)}
+            onClose={() => setSelectedRootId(null)}
+          />
+        )}
       </main>
 
       {modal === "server" && (
@@ -161,6 +191,17 @@ export default function Workspace({ user, onSwitchUser }) {
           roots={roots}
           onSaved={handleAllianceSaved}
           onClose={() => setModal(null)}
+        />
+      )}
+      {editing && (
+        <EditAllianceModal
+          key={editing.id}
+          userId={user.id}
+          alliance={editing}
+          alliances={alliances}
+          onSaved={handleAllianceUpdated}
+          onDeleted={handleAlliancesDeleted}
+          onClose={() => setEditingId(null)}
         />
       )}
     </div>
