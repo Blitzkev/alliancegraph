@@ -39,3 +39,9 @@ export const updateAlliance = (userId, id, fields) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields),
   });
+export const reorderAlliances = (userId, ids) =>
+  request(`${userBase(userId)}/alliances/order`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });

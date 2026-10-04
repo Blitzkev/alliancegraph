@@ -18,6 +18,9 @@ class UserClient:
     def post(self, path, **kwargs):
         return self.client.post(self.prefix + path, **kwargs)
 
+    def put(self, path, **kwargs):
+        return self.client.put(self.prefix + path, **kwargs)
+
     def patch(self, path, **kwargs):
         return self.client.patch(self.prefix + path, **kwargs)
 
@@ -249,3 +252,28 @@ def test_update_cannot_change_server_or_root_status(client):
 
 def test_update_missing_is_404(client):
     assert client.patch(f"/alliances/nope", json={}).status_code == 404
+
+
+# --- ordering ---
+
+
+def test_reorder_sets_positions(client):
+    root = make(client).get_json()
+    f1 = make(client, type="family", tag="F1", rootId=root["id"]).get_json()
+    f2 = make(client, type="family", tag="F2", rootId=root["id"]).get_json()
+    res = client.put("/alliances/order", json={"ids": [f2["id"], f1["id"]]})
+    assert res.status_code == 200
+    positions = {a["id"]: a.get("position") for a in client.get("/alliances").get_json()}
+    assert positions == {root["id"]: None, f2["id"]: 0, f1["id"]: 1}
+
+
+@pytest.mark.parametrize("ids", [None, "x", [1], ["nope"]])
+def test_reorder_rejects_bad_ids(client, ids):
+    res = client.put("/alliances/order", json={"ids": ids})
+    assert res.status_code == 400
+
+
+def test_reorder_rejects_duplicates(client):
+    root = make(client).get_json()
+    res = client.put("/alliances/order", json={"ids": [root["id"], root["id"]]})
+    assert res.status_code == 400

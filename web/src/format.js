@@ -13,3 +13,8 @@ export function allianceDeleteMessage(target, alliances) {
   if (count) message += `\n\nThis will also delete its ${count} family/academy alliance(s).`;
   return message;
 }
+
+// Display order: user-arranged position first, then name for anything not yet arranged.
+export const byOrder = (a, b) =>
+  (a.position ?? Infinity) - (b.position ?? Infinity) ||
+  a.name.localeCompare(b.name, undefined, { sensitivity: "base" });

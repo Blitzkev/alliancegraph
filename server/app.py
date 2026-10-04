@@ -251,6 +251,25 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
             store.save(user_id, data)
         return jsonify(alliance), 201
 
+    @app.put("/api/users/<user_id>/alliances/order")
+    def reorder_alliances(user_id):
+        # Sets each listed alliance's display position to its index in `ids` (e.g. one branch).
+        payload = request.get_json(silent=True)
+        ids = payload.get("ids") if isinstance(payload, dict) else None
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
+            return jsonify({"errors": {"ids": "ids must be a list of distinct alliance ids."}}), 400
+        with store.lock:
+            require_user(user_id)
+            data = store.load(user_id)
+            by_id = {a["id"]: a for a in data["alliances"]}
+            missing = [i for i in ids if i not in by_id]
+            if missing:
+                return jsonify({"errors": {"ids": f"Unknown alliance ids: {', '.join(missing)}"}}), 400
+            for position, alliance_id in enumerate(ids):
+                by_id[alliance_id]["position"] = position
+            store.save(user_id, data)
+        return jsonify([by_id[i] for i in ids])
+
     @app.patch("/api/users/<user_id>/alliances/<alliance_id>")
     def update_alliance(user_id, alliance_id):
         payload = request.get_json(silent=True)

@@ -1,6 +1,4 @@
-import { formatAlliance, formatServer } from "../format";
-
-const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+import { byOrder, formatAlliance, formatServer } from "../format";
 
 function Item({ alliance, onEdit }) {
   return (
@@ -40,8 +38,8 @@ function Group({ label, type, members, onEdit }) {
 // Tree of one root umbrella: the root, then its families and academies.
 export default function UmbrellaPanel({ root, alliances, onEdit, onClose }) {
   const members = alliances.filter((a) => a.rootId === root.id);
-  const families = members.filter((a) => a.type === "family").sort(byName);
-  const academies = members.filter((a) => a.type === "academy").sort(byName);
+  const families = members.filter((a) => a.type === "family").sort(byOrder);
+  const academies = members.filter((a) => a.type === "academy").sort(byOrder);
 
   return (
     <aside className="umbrella-panel">

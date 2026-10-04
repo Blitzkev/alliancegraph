@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { listAlliances, listServers, deleteAlliance, deleteServer } from "./api";
+import { listAlliances, listServers, deleteAlliance, deleteServer, reorderAlliances } from "./api";
 import { allianceDeleteMessage, formatAlliance, formatServer, TYPE_LABELS } from "./format";
 import AllianceModal from "./components/AllianceModal";
 import ServerModal from "./components/ServerModal";
@@ -39,6 +39,22 @@ export default function Workspace({ user, onSwitchUser }) {
   const handleAllianceUpdated = (updated) => {
     setAlliances((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
     setEditingId(null);
+  };
+
+  // Apply the new order right away so the graph doesn't jump back; undo it if saving fails.
+  const handleReorder = async (ids) => {
+    const previous = alliances;
+    const position = new Map(ids.map((id, i) => [id, i]));
+    setAlliances((prev) =>
+      prev.map((a) => (position.has(a.id) ? { ...a, position: position.get(a.id) } : a)),
+    );
+    try {
+      await reorderAlliances(user.id, ids);
+      setLoadError(null);
+    } catch {
+      setAlliances(previous);
+      setLoadError("Could not save the new order. Please try again.");
+    }
   };
 
   const handleAlliancesDeleted = (deleted) => {
@@ -168,6 +184,7 @@ export default function Workspace({ user, onSwitchUser }) {
             alliances={alliances}
             selectedUmbrella={selectedRoot?.id ?? null}
             onSelectUmbrella={setSelectedRootId}
+            onReorder={handleReorder}
           />
         </div>
         {selectedRoot && (
