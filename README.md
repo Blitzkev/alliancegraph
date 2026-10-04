@@ -64,6 +64,7 @@ npm run dev                          # rebuilds web/dist on every change; refres
 
 | Variable         | Default               | Purpose                     |
 | ---------------- | --------------------- | --------------------------- |
+| `HOST`           | `127.0.0.1`           | Interface to listen on; `0.0.0.0` allows other machines to connect |
 | `PORT`           | `5050`                | Server port                 |
 | `ALLYGRAPH_DATA` | `data/alliances.json` | Path to the JSON data file  |
 
