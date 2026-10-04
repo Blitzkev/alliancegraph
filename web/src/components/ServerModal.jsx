@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createServer } from "../api";
 
-export default function ServerModal({ onSaved, onClose }) {
+export default function ServerModal({ userId, onSaved, onClose }) {
   const [number, setNumber] = useState("");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -20,7 +20,7 @@ export default function ServerModal({ onSaved, onClose }) {
     }
     setSaving(true);
     try {
-      onSaved(await createServer(number.trim()));
+      onSaved(await createServer(userId, number.trim()));
     } catch (err) {
       setError(Object.values(err.errors).join(" "));
       setSaving(false);

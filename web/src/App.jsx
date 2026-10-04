@@ -1,155 +1,43 @@
-import { useEffect, useMemo, useState } from "react";
-import { listAlliances, listServers, deleteAlliance, deleteServer } from "./api";
-import { formatAlliance, formatServer, TYPE_LABELS } from "./format";
-import AllianceModal from "./components/AllianceModal";
-import ServerModal from "./components/ServerModal";
-import AllianceGraph from "./components/AllianceGraph";
+import { useCallback, useState } from "react";
+import UserPicker from "./components/UserPicker";
+import Workspace from "./Workspace";
+
+// The chosen user is remembered per browser. Storage can be unavailable (private mode etc.),
+// in which case the picker simply shows on every visit.
+const STORAGE_KEY = "allygraph.userId";
+
+const storage = {
+  get: () => {
+    try {
+      return localStorage.getItem(STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  },
+  set: (id) => {
+    try {
+      if (id) localStorage.setItem(STORAGE_KEY, id);
+      else localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Not remembering the user is fine.
+    }
+  },
+};
 
 export default function App() {
-  const [servers, setServers] = useState([]);
-  const [alliances, setAlliances] = useState([]);
-  const [loadError, setLoadError] = useState(null);
-  const [modal, setModal] = useState(null); // "server" | alliance type | null
-  const [deleteKey, setDeleteKey] = useState("");
-  const [deleteError, setDeleteError] = useState(null);
+  const [user, setUser] = useState(null);
 
-  useEffect(() => {
-    Promise.all([listServers(), listAlliances()])
-      .then(([s, a]) => {
-        setServers(s.map((x) => x.number));
-        setAlliances(a);
-      })
-      .catch(() => setLoadError("Could not load data from the server."));
+  const chooseUser = useCallback((u) => {
+    storage.set(u.id);
+    setUser(u);
   }, []);
 
-  const sortedServers = useMemo(() => [...servers].sort(), [servers]);
-  const roots = alliances.filter((a) => a.type === "root");
+  const switchUser = useCallback(() => {
+    storage.set(null);
+    setUser(null);
+  }, []);
 
-  const handleAllianceSaved = (alliance) => {
-    setAlliances((prev) => [...prev, alliance]);
-    setModal(null);
-  };
-
-  const handleServerSaved = (server) => {
-    setServers((prev) => [...prev, server.number]);
-    setModal(null);
-  };
-
-  // Delete dropdown values are "server:<number>" or "alliance:<id>".
-  const handleDelete = async () => {
-    const [kind, key] = deleteKey.split(/:(.*)/);
-    let message, remove;
-    if (kind === "server") {
-      const count = alliances.filter((a) => a.server === key).length;
-      message = `Delete ${formatServer(key)}?`;
-      if (count) message += `\n\nThis will also delete its ${count} alliance(s).`;
-      remove = () => deleteServer(key);
-    } else {
-      const target = alliances.find((a) => a.id === key);
-      if (!target) return;
-      const count = alliances.filter((a) => a.rootId === target.id).length;
-      message = `Delete ${formatAlliance(target)}?`;
-      if (count) message += `\n\nThis will also delete its ${count} family/academy alliance(s).`;
-      remove = () => deleteAlliance(key);
-    }
-    if (!window.confirm(message)) return;
-    try {
-      const { deleted } = await remove();
-      setAlliances((prev) => prev.filter((a) => !deleted.includes(a.id)));
-      if (kind === "server") setServers((prev) => prev.filter((s) => s !== key));
-      setDeleteKey("");
-      setDeleteError(null);
-    } catch (err) {
-      setDeleteError(Object.values(err.errors).join(" "));
-    }
-  };
-
-  // Group the delete dropdown by server, then by root, so it's clear what falls under what.
-  const deleteOptions = sortedServers.map((server) => (
-    <optgroup key={server} label={formatServer(server)}>
-      <option value={`server:${server}`}>{formatServer(server)} (entire server)</option>
-      {roots
-        .filter((r) => r.server === server)
-        .flatMap((root) => [root, ...alliances.filter((a) => a.rootId === root.id)])
-        .map((a) => (
-          <option key={a.id} value={`alliance:${a.id}`}>
-            {a.type === "root" ? "" : "   "}
-            {formatAlliance(a)} ({TYPE_LABELS[a.type]})
-          </option>
-        ))}
-    </optgroup>
-  ));
-
-  return (
-    <div className="app">
-      <header className="app-header">
-        <h1>AllyGraph</h1>
-      </header>
-
-      <div className="toolbar">
-        <section className="panel">
-          <h2>Servers</h2>
-          <div className="button-row">
-            <button className="btn btn-server" onClick={() => setModal("server")}>
-              Create Server/Kingdom
-            </button>
-          </div>
-        </section>
-
-        <section className="panel">
-          <h2>Create New Alliance</h2>
-          <div className="button-row">
-            <button className="btn btn-root" onClick={() => setModal("root")}>
-              Root Alliance
-            </button>
-            <button className="btn btn-family" onClick={() => setModal("family")}>
-              Family Alliance
-            </button>
-            <button className="btn btn-academy" onClick={() => setModal("academy")}>
-              Academy Alliance
-            </button>
-          </div>
-        </section>
-
-        <section className="panel">
-          <h2>Delete</h2>
-          <div className="button-row">
-            <select
-              value={deleteKey}
-              onChange={(e) => setDeleteKey(e.target.value)}
-              disabled={servers.length === 0}
-            >
-              <option value="">
-                {servers.length ? "Select a server or alliance…" : "Nothing to delete yet"}
-              </option>
-              {deleteOptions}
-            </select>
-            <button className="btn btn-danger" onClick={handleDelete} disabled={!deleteKey}>
-              Delete
-            </button>
-          </div>
-          {deleteError && <p className="error">{deleteError}</p>}
-        </section>
-      </div>
-
-      {loadError && <p className="error banner">{loadError}</p>}
-
-      <main className="graph-panel">
-        <AllianceGraph servers={sortedServers} alliances={alliances} />
-      </main>
-
-      {modal === "server" && (
-        <ServerModal onSaved={handleServerSaved} onClose={() => setModal(null)} />
-      )}
-      {modal && modal !== "server" && (
-        <AllianceModal
-          type={modal}
-          servers={sortedServers}
-          roots={roots}
-          onSaved={handleAllianceSaved}
-          onClose={() => setModal(null)}
-        />
-      )}
-    </div>
-  );
+  if (!user) return <UserPicker rememberedId={storage.get()} onChoose={chooseUser} />;
+  // key: remount on user change so no state leaks from one user's graph to the next.
+  return <Workspace key={user.id} user={user} onSwitchUser={switchUser} />;
 }

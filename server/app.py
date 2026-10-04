@@ -1,4 +1,4 @@
-"""AllyGraph backend: a tiny JSON API over a JSON file, plus static hosting of the built frontend."""
+"""AllyGraph backend: a tiny JSON API over per-user JSON files, plus static hosting of the built frontend."""
 
 import json
 import os
@@ -13,44 +13,85 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_FILE = Path(os.environ.get("ALLYGRAPH_DATA", ROOT_DIR / "data" / "alliances.json"))
+DEFAULT_DATA_DIR = Path(os.environ.get("ALLYGRAPH_DATA_DIR", ROOT_DIR / "data"))
 DIST_DIR = ROOT_DIR / "web" / "dist"
 
 TYPES = ("root", "family", "academy")
 NAME_MAX = 256
 TAG_MAX = 4
+USER_NAME_MAX = 64
 SERVER_RE = re.compile(r"^[0-9]{4}$")
+USER_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _read_json(path):
+    with path.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _write_json(path, data):
+    # Write to a temp file and rename so a crash never leaves a half-written file.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
 class Store:
-    """Servers and alliances persisted to a JSON file. All access goes through a lock."""
+    """One JSON file per user under <data_dir>/users/, each holding that user's graph.
 
-    def __init__(self, path):
-        self.path = Path(path)
+    A single lock covers every file: requests are tiny, so per-user locks aren't worth it.
+    """
+
+    def __init__(self, data_dir):
+        self.users_dir = Path(data_dir) / "users"
         self.lock = threading.Lock()
+        self._import_legacy(Path(data_dir) / "alliances.json")
 
-    def load(self):
-        if not self.path.exists():
-            return {"servers": [], "alliances": []}
-        with self.path.open(encoding="utf-8") as f:
-            data = json.load(f)
+    def _import_legacy(self, legacy):
+        # Before multi-user support all data lived in one file; adopt it as user "Default".
+        if legacy.exists() and not self.list_users():
+            data = self._upgrade(_read_json(legacy))
+            user = self.create_user("Default")
+            self.save(user["id"], {"user": user, "servers": data["servers"], "alliances": data["alliances"]})
+            legacy.rename(legacy.with_name(legacy.name + ".imported"))
+
+    @staticmethod
+    def _upgrade(data):
         if "servers" not in data:
             # Files written before servers existed: create a server for each one alliances use.
             numbers = sorted({a["server"] for a in data["alliances"]})
             data["servers"] = [{"number": n, "createdAt": _now()} for n in numbers]
         return data
 
-    def save(self, data):
-        # Write to a temp file and rename so a crash never leaves a half-written file.
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self.path)
+    def _path(self, user_id):
+        return self.users_dir / f"{user_id}.json"
+
+    def exists(self, user_id):
+        # The id format check also stops path tricks like "../x" from reaching the filesystem.
+        return bool(USER_ID_RE.match(user_id)) and self._path(user_id).is_file()
+
+    def list_users(self):
+        if not self.users_dir.is_dir():
+            return []
+        users = [_read_json(p)["user"] for p in self.users_dir.glob("*.json")]
+        return sorted(users, key=lambda u: u["name"].casefold())
+
+    def create_user(self, name):
+        user = {"id": str(uuid.uuid4()), "name": name, "createdAt": _now()}
+        _write_json(self._path(user["id"]), {"user": user, "servers": [], "alliances": []})
+        return user
+
+    def load(self, user_id):
+        return self._upgrade(_read_json(self._path(user_id)))
+
+    def save(self, user_id, data):
+        _write_json(self._path(user_id), data)
 
 
 def _clean_text(value):
@@ -105,20 +146,52 @@ def validate_alliance(payload, data):
     return fields, errors
 
 
-def create_app(data_file=DEFAULT_DATA_FILE):
+def create_app(data_dir=DEFAULT_DATA_DIR):
     app = Flask(__name__, static_folder=None)
-    store = Store(data_file)
+    store = Store(data_dir)
 
     def bad_body():
         return jsonify({"errors": {"_": "Request body must be a JSON object."}}), 400
 
-    @app.get("/api/servers")
-    def list_servers():
-        with store.lock:
-            return jsonify(store.load()["servers"])
+    def require_user(user_id):
+        if not store.exists(user_id):
+            abort(404)
 
-    @app.post("/api/servers")
-    def create_server():
+    @app.errorhandler(404)
+    def not_found(_):
+        if request.path.startswith("/api/"):
+            return jsonify({"errors": {"_": "Not found."}}), 404
+        return "Not found", 404
+
+    @app.get("/api/users")
+    def list_users():
+        with store.lock:
+            return jsonify(store.list_users())
+
+    @app.post("/api/users")
+    def create_user():
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return bad_body()
+        name = _clean_text(payload.get("name"))
+        if not name:
+            return jsonify({"errors": {"name": "Name is required."}}), 400
+        if len(name) > USER_NAME_MAX:
+            return jsonify({"errors": {"name": f"Name must be at most {USER_NAME_MAX} characters."}}), 400
+        with store.lock:
+            if any(u["name"].casefold() == name.casefold() for u in store.list_users()):
+                return jsonify({"errors": {"name": f"User \"{name}\" already exists."}}), 400
+            user = store.create_user(name)
+        return jsonify(user), 201
+
+    @app.get("/api/users/<user_id>/servers")
+    def list_servers(user_id):
+        with store.lock:
+            require_user(user_id)
+            return jsonify(store.load(user_id)["servers"])
+
+    @app.post("/api/users/<user_id>/servers")
+    def create_server(user_id):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return bad_body()
@@ -126,58 +199,63 @@ def create_app(data_file=DEFAULT_DATA_FILE):
         if number is None:
             return jsonify({"errors": {"number": "Server must be exactly 4 digits (e.g. 0042)."}}), 400
         with store.lock:
-            data = store.load()
+            require_user(user_id)
+            data = store.load(user_id)
             if any(s["number"] == number for s in data["servers"]):
                 return jsonify({"errors": {"number": f"Server {number} already exists."}}), 400
             server = {"number": number, "createdAt": _now()}
             data["servers"].append(server)
-            store.save(data)
+            store.save(user_id, data)
         return jsonify(server), 201
 
-    @app.delete("/api/servers/<number>")
-    def delete_server(number):
+    @app.delete("/api/users/<user_id>/servers/<number>")
+    def delete_server(user_id, number):
         # Deleting a server also deletes every alliance on it.
         with store.lock:
-            data = store.load()
+            require_user(user_id)
+            data = store.load(user_id)
             if not any(s["number"] == number for s in data["servers"]):
-                return jsonify({"errors": {"_": "Server not found."}}), 404
+                abort(404)
             deleted = sorted(a["id"] for a in data["alliances"] if a["server"] == number)
             data["servers"] = [s for s in data["servers"] if s["number"] != number]
             data["alliances"] = [a for a in data["alliances"] if a["server"] != number]
-            store.save(data)
+            store.save(user_id, data)
         return jsonify({"deleted": deleted})
 
-    @app.get("/api/alliances")
-    def list_alliances():
+    @app.get("/api/users/<user_id>/alliances")
+    def list_alliances(user_id):
         with store.lock:
-            return jsonify(store.load()["alliances"])
+            require_user(user_id)
+            return jsonify(store.load(user_id)["alliances"])
 
-    @app.post("/api/alliances")
-    def create_alliance():
+    @app.post("/api/users/<user_id>/alliances")
+    def create_alliance(user_id):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return bad_body()
         with store.lock:
-            data = store.load()
+            require_user(user_id)
+            data = store.load(user_id)
             fields, errors = validate_alliance(payload, data)
             if errors:
                 return jsonify({"errors": errors}), 400
             alliance = {"id": str(uuid.uuid4()), **fields, "createdAt": _now()}
             data["alliances"].append(alliance)
-            store.save(data)
+            store.save(user_id, data)
         return jsonify(alliance), 201
 
-    @app.delete("/api/alliances/<alliance_id>")
-    def delete_alliance(alliance_id):
+    @app.delete("/api/users/<user_id>/alliances/<alliance_id>")
+    def delete_alliance(user_id, alliance_id):
         # Deleting a root also deletes every family/academy alliance under it.
         with store.lock:
-            data = store.load()
+            require_user(user_id)
+            data = store.load(user_id)
             alliances = data["alliances"]
             if not any(a["id"] == alliance_id for a in alliances):
-                return jsonify({"errors": {"_": "Alliance not found."}}), 404
+                abort(404)
             deleted = {a["id"] for a in alliances if a["id"] == alliance_id or a["rootId"] == alliance_id}
             data["alliances"] = [a for a in alliances if a["id"] not in deleted]
-            store.save(data)
+            store.save(user_id, data)
         return jsonify({"deleted": sorted(deleted)})
 
     @app.get("/")

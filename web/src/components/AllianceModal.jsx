@@ -15,7 +15,7 @@ function validate({ name, tag }, server, needsRoot, rootId) {
   return errors;
 }
 
-export default function AllianceModal({ type, servers, roots, onSaved, onClose }) {
+export default function AllianceModal({ userId, type, servers, roots, onSaved, onClose }) {
   const needsRoot = type !== "root";
   const blocker =
     servers.length === 0
@@ -53,7 +53,7 @@ export default function AllianceModal({ type, servers, roots, onSaved, onClose }
     if (Object.keys(found).length) return;
     setSaving(true);
     try {
-      const saved = await createAlliance({
+      const saved = await createAlliance(userId, {
         ...fields,
         server,
         type,

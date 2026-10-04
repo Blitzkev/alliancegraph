@@ -11,9 +11,13 @@ Each alliance belongs to a **server/kingdom** (a 4-digit number) and is shown as
 on the same server, and a tag can only be used once per server. Servers are created first, then
 alliances are added to them.
 
+There are no passwords. On first visit you pick an existing user or create one, and each user has their
+own graph, so several people can maintain separate graphs at the same time. The browser remembers who
+you picked; "Switch user" in the header goes back to the picker.
+
 ## Stack
 
-- `server/` — Flask app: JSON API + serves the built frontend. Data lives in `data/alliances.json`.
+- `server/` — Flask app: JSON API + serves the built frontend. Each user's graph lives in `data/users/<id>.json`.
 - `web/` — React + webpack + D3.
 
 ## Requirements
@@ -53,10 +57,12 @@ make run                             # builds the frontend, starts http://localh
 
 This uses `.venv/bin/python` directly, so the venv doesn't need to be activated. Without `make`
 (e.g. on Windows), activate the venv and run `cd web && npm run build && cd ..` then
-`python server/app.py`. Data persists in `data/alliances.json`.
+`python server/app.py`. Data persists in `data/users/`.
 
-To start over with no servers or alliances, run `make reset-data`. It asks for confirmation and keeps
-a timestamped backup of the old data next to it.
+To start over with no users, servers or alliances, run `make reset-data`. It asks for confirmation and
+moves the old data into a timestamped `data/backup-*.bak` folder.
+
+A `data/alliances.json` from before multi-user support is imported automatically as user "Default".
 
 For frontend development, keep the server running and in a second terminal:
 
@@ -71,7 +77,7 @@ npm run dev                          # rebuilds web/dist on every change; refres
 | ---------------- | --------------------- | --------------------------- |
 | `HOST`           | `127.0.0.1`           | Interface to listen on; `0.0.0.0` allows other machines to connect |
 | `PORT`           | `5050`                | Server port                 |
-| `ALLYGRAPH_DATA` | `data/alliances.json` | Path to the JSON data file  |
+| `ALLYGRAPH_DATA_DIR` | `data`            | Directory holding the per-user data files |
 
 ## Tests
 
@@ -94,11 +100,15 @@ npm needs). `git commit --no-verify` skips the hook in an emergency.
 
 ## API
 
-| Method | Path                    | Body / result                                                              |
-| ------ | ----------------------- | -------------------------------------------------------------------------- |
-| GET    | `/api/servers`          | List of servers                                                            |
-| POST   | `/api/servers`          | `{number}` (4 digits) → `201` server, or `400 {errors}`                     |
-| DELETE | `/api/servers/<number>` | `{deleted: [alliance ids]}` — deleting a server deletes all its alliances  |
-| GET    | `/api/alliances`        | List of alliances                                                          |
-| POST   | `/api/alliances`        | `{name, tag, server, type, rootId}` → `201` alliance, or `400 {errors}`     |
-| DELETE | `/api/alliances/<id>`   | `{deleted: [ids]}` — deleting a root also deletes its members              |
+All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
+
+| Method | Path                     | Body / result                                                             |
+| ------ | ------------------------ | ------------------------------------------------------------------------- |
+| GET    | `/api/users`             | List of users                                                             |
+| POST   | `/api/users`             | `{name}` (1-64 chars, unique) → `201` user, or `400 {errors}`              |
+| GET    | `<u>/servers`            | List of servers                                                           |
+| POST   | `<u>/servers`            | `{number}` (4 digits) → `201` server, or `400 {errors}`                    |
+| DELETE | `<u>/servers/<number>`   | `{deleted: [alliance ids]}` — deleting a server deletes all its alliances |
+| GET    | `<u>/alliances`          | List of alliances                                                         |
+| POST   | `<u>/alliances`          | `{name, tag, server, type, rootId}` → `201` alliance, or `400 {errors}`    |
+| DELETE | `<u>/alliances/<id>`     | `{deleted: [ids]}` — deleting a root also deletes its members             |

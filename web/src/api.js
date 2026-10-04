@@ -3,32 +3,33 @@ async function request(url, options) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error("Request failed");
+    err.status = res.status;
     err.errors = body.errors || { _: `Server error (${res.status})` };
     throw err;
   }
   return body;
 }
 
-export const listAlliances = () => request("/api/alliances");
-
-export const createAlliance = (alliance) =>
-  request("/api/alliances", {
+const post = (url, body) =>
+  request(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(alliance),
+    body: JSON.stringify(body),
   });
 
-export const deleteAlliance = (id) =>
-  request(`/api/alliances/${encodeURIComponent(id)}`, { method: "DELETE" });
+const del = (url) => request(url, { method: "DELETE" });
 
-export const listServers = () => request("/api/servers");
+export const listUsers = () => request("/api/users");
+export const createUser = (name) => post("/api/users", { name });
 
-export const createServer = (number) =>
-  request("/api/servers", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ number }),
-  });
+const userBase = (userId) => `/api/users/${encodeURIComponent(userId)}`;
 
-export const deleteServer = (number) =>
-  request(`/api/servers/${encodeURIComponent(number)}`, { method: "DELETE" });
+export const listServers = (userId) => request(`${userBase(userId)}/servers`);
+export const createServer = (userId, number) => post(`${userBase(userId)}/servers`, { number });
+export const deleteServer = (userId, number) =>
+  del(`${userBase(userId)}/servers/${encodeURIComponent(number)}`);
+
+export const listAlliances = (userId) => request(`${userBase(userId)}/alliances`);
+export const createAlliance = (userId, alliance) => post(`${userBase(userId)}/alliances`, alliance);
+export const deleteAlliance = (userId, id) =>
+  del(`${userBase(userId)}/alliances/${encodeURIComponent(id)}`);

@@ -4,5 +4,7 @@ __pycache__/
 node_modules/
 web/dist/
 data/*.json
+data/*.imported
+data/users/
 .DS_Store
 data/*.bak
