@@ -12,10 +12,10 @@ import {
   sortFamilies,
 } from "../format";
 
-// The selected kingdom (server) is drawn as a stack of bands: each family (oldest first) followed by
-// a band of its academies, then independent alliances. A band is a hub on the left with alliances in
-// a row to its right. Every alliance appears exactly once; allied links are dashed curves from a
-// family's hub to the alliance.
+// The selected kingdom (server) is drawn top to bottom: each family (oldest first) as a light blue
+// bubble around its alliances, with a light green bubble of its academies just below and connected to
+// it; independent alliances in a row at the bottom. Every alliance appears exactly once; allied links
+// are dashed curves from a family's bubble to the alliance.
 const COLORS = {
   family: "#2563eb",
   academy: "#16a34a",
@@ -25,20 +25,15 @@ const COLORS = {
 };
 
 const ALLIANCE_H = 40;
-const HUB_H = 30;
-const NODE_GAP = 18; // horizontal space between alliances in a band
 const NODE_PAD_X = 12;
-const MEMBERS_INDENT = 36; // gap between the hub column and the first alliance
-const DROP = 44; // from a band's bus line down to its alliances' centres
-const BAND_GAP = 30; // vertical space between bands
-const ARC_STEP = 14; // spacing between "protects" arcs in the left margin
+const CELL_GAP = 14; // space between alliances inside a bubble (and in the independent row)
+const BUBBLE_PAD = 14; // extra room between the alliances and the bubble's edge
+const ACADEMY_GAP = 36; // between a family's bubble and its academies' bubble
+const FAMILY_GAP = 56; // between one family (with its academies) and the next
 
-
-const LABEL_MAX = 28;
-const truncate = (s) => (Array.from(s).length > LABEL_MAX ? Array.from(s).slice(0, LABEL_MAX - 1).join("") + "…" : s);
 const keyOf = (kind, id) => `${kind}:${id}`;
 
-// Order within a band: anything the user arranged by dragging first, then strongest (so a family's
+// Order within a bubble: anything the user arranged by dragging first, then strongest (so a family's
 // leader comes first).
 const bandOrder = (a, b) => {
   const pa = a.position ?? Infinity;
@@ -123,66 +118,37 @@ export default function AllianceGraph({ server, families, alliances, selected, o
     if (server) {
       const content = viewport.append("g");
       const edgeLayer = content.append("g");
-      const nodeLayer = content.append("g");
+      const groupLayer = content.append("g");
 
       const on = (items) => items.filter((x) => x.server === server);
       const serverAlliances = on(alliances);
       const leaderIds = new Set();
+      const pos = new Map(); // alliance id -> { x, y, width, g, group } in content coordinates
 
-      // Bands: each family, then its academies (if any), then independent alliances.
-      const bands = [];
-      for (const family of sortFamilies(on(families))) {
-        const leader = familyLeader(family.id, alliances);
-        if (leader) leaderIds.add(leader.id);
-        const label = leader ? truncate(leader.name) : "Family";
-        const members = familyMembers(family.id, serverAlliances).sort(bandOrder);
-        bands.push({ kind: "family", family, members, label: `${label} family (${members.length})` });
-        const academies = familyAcademies(family.id, serverAlliances).sort(bandOrder);
-        if (academies.length)
-          bands.push({ kind: "academy", family, members: academies, label: `${label} academies (${academies.length})` });
-      }
-      const independents = serverAlliances.filter((a) => !a.familyId && !a.academyOf).sort(bandOrder);
-      if (independents.length)
-        bands.push({ kind: "none", members: independents, label: `Independent (${independents.length})` });
-      const familyBand = new Map(bands.filter((b) => b.kind === "family").map((b) => [b.family.id, b]));
+      const addEdge = (cls, ends, d) => {
+        const path = edgeLayer.append("path").attr("class", `edge ${cls}`);
+        edges.push({ path, ends, d });
+      };
 
-      // Hubs first, so the hub column can be as wide as the widest hub. Both of a family's hubs
-      // select the family.
-      for (const band of bands) {
-        band.hub = drawBox(nodeLayer, {
-          kind: band.kind === "none" ? "none" : "family",
-          id: band.family?.id,
-          height: HUB_H,
-          cls: `hub hub-${band.kind}`,
-          lines: [{ text: band.label, cls: "hub-title" }],
-        });
-        if (band.family) {
-          const { id } = band.family;
-          band.hub
-            .on("mouseenter mousemove", (event) =>
-              showTooltip(event, [
-                formatFamily(id, alliances),
-                `${familyMembers(id, alliances).length} member(s), ${familyAcademies(id, alliances).length} academy alliance(s)`,
-                "Led by its strongest member",
-              ]),
-            )
-            .on("mouseleave", hideTooltip);
-        }
-      }
-      const hubColumn = Math.max(0, ...bands.map((b) => b.hub.width));
-      const membersX = hubColumn + MEMBERS_INDENT;
+      const describe = (a) => {
+        const relationship = a.familyId
+          ? `${leaderIds.has(a.id) ? "Leads" : "Member of"} ${formatFamily(a.familyId, alliances)}`
+          : a.academyOf
+            ? `Academy of ${formatFamily(a.academyOf, alliances)}`
+            : "Independent";
+        return [
+          formatAlliance(a),
+          `Power: ${formatPower(a.power)}`,
+          relationship,
+          ...(a.alliedFamilyIds.length ? [`Allied with: ${familyNames(a.alliedFamilyIds)}`] : []),
+        ];
+      };
 
-      // Lay out the bands top to bottom.
-      const pos = new Map(); // alliance id -> { x, y, width, g, band }
-      let y = 0;
-      for (const band of bands) {
-        band.y = y; // the bus line, level with the hub
-        band.hubRight = hubColumn;
-        band.hub.attr("transform", `translate(${hubColumn - band.hub.width / 2},${y})`);
-        band.hubLeft = hubColumn - band.hub.width;
-        let x = membersX;
-        for (const a of band.members) {
-          const g = drawBox(nodeLayer, {
+      // A group of alliance boxes laid out in a compact grid around (0, 0) inside `parent`, which is
+      // later moved to (cx, cy). Returns the slot layout so boxes can be dragged between slots.
+      const drawGroup = (parent, members) => {
+        const boxes = members.map((a) => {
+          const g = drawBox(parent, {
             kind: "alliance",
             id: a.id,
             height: ALLIANCE_H,
@@ -192,109 +158,176 @@ export default function AllianceGraph({ server, families, alliances, selected, o
               { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
             ],
           });
-          const relationship = a.familyId
-            ? `${leaderIds.has(a.id) ? "Leads" : "Member of"} ${formatFamily(a.familyId, alliances)}`
-            : a.academyOf
-              ? `Academy of ${formatFamily(a.academyOf, alliances)}`
-              : "Independent";
-          g.on("mouseenter mousemove", (event) =>
-            showTooltip(event, [
-              formatAlliance(a),
-              `Power: ${formatPower(a.power)}`,
-              relationship,
-              ...(a.alliedFamilyIds.length ? [`Allied with: ${familyNames(a.alliedFamilyIds)}`] : []),
-            ]),
-          ).on("mouseleave", hideTooltip);
-          const p = { x: x + g.width / 2, y: y + DROP, width: g.width, g, band };
-          g.attr("transform", `translate(${p.x},${p.y})`);
-          pos.set(a.id, p);
-          x += g.width + NODE_GAP;
-        }
-        y += (band.members.length ? DROP + ALLIANCE_H / 2 : HUB_H / 2) + BAND_GAP + HUB_H / 2;
-      }
-
-      // Edges. Alliance ends are read from `pos` so they follow an alliance being dragged.
-      const addEdge = (cls, ends, d) => {
-        const path = edgeLayer.append("path").attr("class", `edge ${cls}`);
-        edges.push({ path, ends, d });
+          g.on("mouseenter mousemove", (event) => showTooltip(event, describe(a))).on("mouseleave", hideTooltip);
+          return g;
+        });
+        const cols = Math.max(1, Math.ceil(Math.sqrt(members.length)));
+        const rows = Math.ceil(members.length / cols);
+        const cellW = Math.max(0, ...boxes.map((b) => b.width));
+        const width = cols * cellW + (cols - 1) * CELL_GAP;
+        const height = rows * ALLIANCE_H + (rows - 1) * CELL_GAP;
+        const slots = members.map((_, i) => ({
+          x: -width / 2 + (i % cols) * (cellW + CELL_GAP) + cellW / 2,
+          y: -height / 2 + Math.floor(i / cols) * (ALLIANCE_H + CELL_GAP) + ALLIANCE_H / 2,
+        }));
+        boxes.forEach((g, i) => g.attr("transform", `translate(${slots[i].x},${slots[i].y})`));
+        return { boxes, slots, width, height };
       };
-      for (const band of bands) {
-        if (band.kind === "none") continue;
-        const familyKey = keyOf("family", band.family.id);
-        for (const a of band.members) {
-          // Along the band's bus line from the hub, then down into the alliance.
-          const cls = band.kind === "academy" ? "edge-academy" : leaderIds.has(a.id) ? "edge-root" : "edge-family";
-          addEdge(cls, [familyKey, keyOf("alliance", a.id)], () => {
-            const p = pos.get(a.id);
-            return `M${band.hubRight},${band.y} H${p.x} V${p.y - ALLIANCE_H / 2}`;
-          });
-        }
-        // A family's academies hang off the family: a short arc down the left margin.
-        if (band.kind === "academy") {
-          const from = familyBand.get(band.family.id);
-          const bulge = Math.min(from.hubLeft, band.hubLeft) - 24;
-          addEdge("edge-link", [familyKey], () =>
-            `M${from.hubLeft},${from.y} C${bulge},${from.y} ${bulge},${band.y} ${band.hubLeft},${band.y}`,
-          );
-        }
-      }
-      // Allied: a dashed curve from the family's hub to the near edge of the alliance.
-      for (const a of serverAlliances) {
-        for (const familyId of a.alliedFamilyIds) {
-          const band = familyBand.get(familyId);
-          if (!band) continue;
-          addEdge("edge-allied", [keyOf("family", familyId), keyOf("alliance", a.id)], () => {
-            const p = pos.get(a.id);
-            const sx = band.hubRight;
-            const sy = band.y;
-            const ty = p.y < sy ? p.y + ALLIANCE_H / 2 : p.y - ALLIANCE_H / 2;
-            return `M${sx},${sy} C${sx + 80},${sy} ${p.x},${(sy + ty) / 2} ${p.x},${ty}`;
-          });
-        }
-      }
-      const redrawEdges = () => edges.forEach((e) => e.path.attr("d", e.d()));
-      redrawEdges();
 
-      // Drag an alliance sideways to reorder its band; the new order is saved on release.
-      for (const band of bands) {
-        if (band.members.length < 2) continue;
-        const slot = (i) =>
-          band.members.slice(0, i).reduce((sum, m) => sum + pos.get(m.id).width + NODE_GAP, membersX) +
-          pos.get(band.members[i].id).width / 2;
-        band.members.forEach((a, i) => {
-          const p = pos.get(a.id);
+      // Drag an alliance onto another slot of its group to reorder; saved on release.
+      const makeDraggable = (group, members, layout) => {
+        if (members.length < 2) return;
+        members.forEach((a, from) => {
+          const g = layout.boxes[from];
+          const local = { ...layout.slots[from] };
           let moved = false;
-          p.g.classed("draggable", true).call(
+          g.classed("draggable", true).call(
             d3
               .drag()
               // Explicit subject: d3 would otherwise use the node's datum.
-              .subject(() => ({ x: p.x, y: p.y }))
+              .subject(() => ({ x: local.x, y: local.y }))
               .on("drag", (event) => {
                 if (!moved) {
                   moved = true;
-                  p.g.raise().classed("dragging", true);
+                  g.raise().classed("dragging", true);
                 }
                 hideTooltip();
-                p.x = Math.max(membersX + p.width / 2, event.x);
-                p.g.attr("transform", `translate(${p.x},${p.y})`);
+                local.x = event.x;
+                local.y = event.y;
+                g.attr("transform", `translate(${local.x},${local.y})`);
+                const p = pos.get(a.id);
+                p.x = group.cx + local.x;
+                p.y = group.cy + local.y;
                 redrawEdges();
               })
               .on("end", () => {
-                p.g.classed("dragging", false);
+                g.classed("dragging", false);
                 if (!moved) return;
                 moved = false;
-                const ids = [...band.members].sort((m, n) => pos.get(m.id).x - pos.get(n.id).x).map((m) => m.id);
-                if (ids.some((id, j) => id !== band.members[j].id)) callbacks.current.onReorder(ids);
-                else {
-                  p.x = slot(i); // same order: snap back
-                  p.g.attr("transform", `translate(${p.x},${p.y})`);
+                const to = d3.minIndex(layout.slots, (s) => (s.x - local.x) ** 2 + (s.y - local.y) ** 2);
+                if (to !== from) {
+                  const ids = members.map((m) => m.id);
+                  ids.splice(to, 0, ids.splice(from, 1)[0]);
+                  callbacks.current.onReorder(ids);
+                } else {
+                  Object.assign(local, layout.slots[from]); // same slot: snap back
+                  g.attr("transform", `translate(${local.x},${local.y})`);
+                  Object.assign(pos.get(a.id), { x: group.cx + local.x, y: group.cy + local.y });
                   redrawEdges();
                 }
               }),
           );
         });
+      };
+
+      // A tinted ellipse around a group's alliances; clicking it selects the family.
+      const drawBubble = (members, kind, familyId) => {
+        const g = groupLayer.append("g").attr("class", `bubble bubble-${kind}`);
+        const shape = g.append("ellipse");
+        const layout = drawGroup(g, members);
+        // An ellipse with these radii passes through the corners of the grid's bounding box.
+        const rx = (layout.width / 2) * Math.SQRT2 + BUBBLE_PAD;
+        const ry = (layout.height / 2) * Math.SQRT2 + BUBBLE_PAD;
+        shape.attr("rx", rx).attr("ry", ry);
+        g.datum({ kind: "family", id: familyId });
+        shape
+          .on("click", (event) => {
+            event.stopPropagation();
+            callbacks.current.onSelect({ kind: "family", id: familyId });
+          })
+          .on("mouseenter mousemove", (event) =>
+            showTooltip(event, [
+              kind === "family" ? formatFamily(familyId, alliances) : `Academies of ${formatFamily(familyId, alliances)}`,
+              `${members.length} alliance(s)`,
+            ]),
+          )
+          .on("mouseleave", hideTooltip);
+        nodes.push({ kind: "family", id: familyId, g });
+        return { g, layout, rx, ry, members };
+      };
+
+      const place = (group, cx, cy) => {
+        Object.assign(group, { cx, cy });
+        group.g.attr("transform", `translate(${cx},${cy})`);
+        group.members.forEach((a, i) =>
+          pos.set(a.id, { x: cx + group.layout.slots[i].x, y: cy + group.layout.slots[i].y, group }),
+        );
+      };
+
+      // Families top to bottom, each followed by its academies' bubble; all centred on x = 0.
+      const familyBubbles = new Map();
+      let y = 0;
+      for (const family of sortFamilies(on(families))) {
+        const leader = familyLeader(family.id, alliances);
+        if (leader) leaderIds.add(leader.id);
+        const members = familyMembers(family.id, serverAlliances).sort(bandOrder);
+        const fam = drawBubble(members, "family", family.id);
+        place(fam, 0, y + fam.ry);
+        familyBubbles.set(family.id, fam);
+        makeDraggable(fam, members, fam.layout);
+        y += 2 * fam.ry;
+
+        const academies = familyAcademies(family.id, serverAlliances).sort(bandOrder);
+        if (academies.length) {
+          const aca = drawBubble(academies, "academy", family.id);
+          place(aca, 0, y + ACADEMY_GAP + aca.ry);
+          makeDraggable(aca, academies, aca.layout);
+          const top = fam.cy + fam.ry;
+          const bottom = aca.cy - aca.ry;
+          addEdge("edge-link", [keyOf("family", family.id)], () => `M0,${top} V${bottom}`);
+          y += ACADEMY_GAP + 2 * aca.ry;
+        }
+        y += FAMILY_GAP;
       }
 
+      // Independent alliances: a plain row at the bottom, centred under the families.
+      const independents = serverAlliances.filter((a) => !a.familyId && !a.academyOf).sort(bandOrder);
+      if (independents.length) {
+        const g = groupLayer.append("g").attr("class", "independents");
+        const boxes = independents.map((a) => {
+          const box = drawBox(g, {
+            kind: "alliance",
+            id: a.id,
+            height: ALLIANCE_H,
+            cls: "alliance",
+            lines: [
+              { text: a.tag, cls: "box-title" },
+              { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
+            ],
+          });
+          box.on("mouseenter mousemove", (event) => showTooltip(event, describe(a))).on("mouseleave", hideTooltip);
+          return box;
+        });
+        const width = boxes.reduce((sum, b) => sum + b.width, 0) + (boxes.length - 1) * CELL_GAP;
+        let x = -width / 2;
+        const slots = boxes.map((b) => {
+          const slot = { x: x + b.width / 2, y: 0 };
+          x += b.width + CELL_GAP;
+          return slot;
+        });
+        boxes.forEach((b, i) => b.attr("transform", `translate(${slots[i].x},0)`));
+        const row = { g, layout: { boxes, slots }, members: independents };
+        place(row, 0, y + ALLIANCE_H / 2);
+        makeDraggable(row, independents, row.layout);
+      }
+
+      // Allied: a dashed curve from the side of the family's bubble to the near edge of the alliance.
+      for (const a of serverAlliances) {
+        for (const familyId of a.alliedFamilyIds) {
+          const fam = familyBubbles.get(familyId);
+          if (!fam) continue;
+          addEdge("edge-allied", [keyOf("family", familyId), keyOf("alliance", a.id)], () => {
+            const p = pos.get(a.id);
+            const sx = fam.cx + fam.rx;
+            const sy = fam.cy;
+            const ty = p.y < sy ? p.y + ALLIANCE_H / 2 : p.y - ALLIANCE_H / 2;
+            return `M${sx},${sy} C${sx + 90},${sy} ${p.x + 60},${(sy + ty) / 2} ${p.x},${ty}`;
+          });
+        }
+      }
+
+      const redrawEdges = () => edges.forEach((e) => e.path.attr("d", e.d()));
+      redrawEdges();
     }
 
     // The selected node gets a bold outline and its connections are emphasised; nothing fades.
@@ -410,22 +443,24 @@ const line = (cls) => (
   </svg>
 );
 
+const bubble = (cls) => (
+  <svg width="26" height="16">
+    <ellipse className={cls} cx="13" cy="8" rx="12" ry="7" />
+  </svg>
+);
+
 function LegendBody() {
   return (
     <div className="legend-body">
-      <div className="legend-row">{swatch(COLORS.family, COLORS.family, 6)} Family</div>
-      <div className="legend-row">{swatch(COLORS.academy, COLORS.academy, 6)} A family's academies</div>
-      <div className="legend-row">{swatch("#e2e8f0", "#94a3b8", 6)} Independent</div>
+      <div className="legend-row">{bubble("legend-family")} Family</div>
+      <div className="legend-row">{bubble("legend-academy")} A family's academies</div>
       <div className="legend-row">{swatch("#fff", COLORS.allianceBorder, 3)} Alliance</div>
       <div className="legend-row">{swatch("#fff7ed", COLORS.root, 3)} Family leader (strongest)</div>
-      <div className="legend-row">{line("edge-family")} Family member</div>
-      <div className="legend-row">{line("edge-root")} Family leader</div>
-      <div className="legend-row">{line("edge-academy")} Academy</div>
-      <div className="legend-row">{line("edge-link")} Family's academies</div>
-      <div className="legend-row">{line("edge-allied")} Allied with family</div>
+      <div className="legend-row">{line("edge-link")} Academies of the family above</div>
+      <div className="legend-row">{line("edge-allied")} Allied with a family</div>
       <div className="legend-hint">
-        Scroll to zoom · drag background to pan · drag alliances sideways to reorder within their row ·
-        click anything for details
+        Scroll to zoom · drag background to pan · drag alliances to reorder them · click a bubble or
+        alliance for details
       </div>
     </div>
   );

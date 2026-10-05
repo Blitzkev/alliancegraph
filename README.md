@@ -17,10 +17,11 @@ Deleting a family's last member while it still has academies asks whether to mov
 family, make them independent, or delete them.
 
 Each server/kingdom has its own tab above the graph (creating one opens its tab); the graph shows one
-kingdom at a time as a stack of rows: each family (oldest first), then a row of its academies, and
-independent alliances at the bottom. Each row has a hub on the left and its alliances (tag and power)
-to the right; the leader is amber. Drag alliances sideways to reorder them within their row, and click a
-hub or alliance to see details (members, academies, allies, notes) in a side panel.
+kingdom at a time. Each family is a light blue bubble around its alliances (tag and power; the leader
+in amber), with a light green bubble of its academies just below it, joined by a dotted line.
+Independent alliances sit in a row at the bottom, and dashed lines show which families an alliance is
+allied with. Drag alliances to reorder them within their bubble, and click a bubble or an alliance to
+see details (members, academies, allies, notes) in a side panel.
 
 Notes (up to 200,000 characters) are stored exactly as typed. **Power** is a whole number from 0 to
 2^64-1, shown as e.g. `1,200,000`; it travels as a digit string because browsers can't represent
