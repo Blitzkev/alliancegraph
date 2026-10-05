@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { deleteAlliance, deleteServer, getGraph, reorderAlliances } from "./api";
+import { deleteAlliance, deleteServer, getGraph, reorderAlliances, saveLayout } from "./api";
 import {
   familyAcademies,
   familyLeader,
@@ -102,6 +102,40 @@ export default function Workspace({ user, onSwitchUser }) {
       setGraph(previous);
       setLoadError("Could not save the new order. Please try again.");
     }
+  };
+
+  // Remember where things were dragged; applied right away, undone if saving fails.
+  // items: [{ kind: "family" | "academy" | "alliance", id, x, y }], null x/y = back to automatic.
+  const handleMove = async (items) => {
+    const previous = graph;
+    const spot = (item) => (item.x === null ? undefined : { x: item.x, y: item.y });
+    const apply = (list, kind, key) =>
+      list.map((x) => {
+        const item = items.find((i) => i.kind === kind && i.id === x.id);
+        return item ? { ...x, [key]: spot(item) } : x;
+      });
+    setGraph((g) => ({
+      ...g,
+      families: apply(apply(g.families, "family", "layout"), "academy", "academyLayout"),
+      alliances: apply(g.alliances, "alliance", "layout"),
+    }));
+    try {
+      await saveLayout(user.id, items);
+    } catch {
+      setGraph(previous);
+      setLoadError("Could not save the new position. Please try again.");
+    }
+  };
+
+  // Forget every dragged spot on the kingdom being viewed.
+  const handleResetLayout = () => {
+    const clear = (kind, id) => ({ kind, id, x: null, y: null });
+    handleMove([
+      ...families
+        .filter((f) => f.server === activeServer)
+        .flatMap((f) => [clear("family", f.id), clear("academy", f.id)]),
+      ...alliances.filter((a) => a.server === activeServer && a.layout).map((a) => clear("alliance", a.id)),
+    ]);
   };
 
   // Deleting a family's last member while it has academies asks what happens to them.
@@ -251,6 +285,8 @@ export default function Workspace({ user, onSwitchUser }) {
               selected={selectedItem}
               onSelect={setSelected}
               onReorder={handleReorder}
+              onMove={handleMove}
+              onResetLayout={handleResetLayout}
             />
           </div>
         </div>

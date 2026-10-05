@@ -51,3 +51,6 @@ export const deleteAlliance = (userId, id, academies) => {
 };
 
 export const reorderAlliances = (userId, ids) => put(`${userBase(userId)}/alliances/order`, { ids });
+
+// items: [{ kind: "family" | "academy" | "alliance", id, x, y }]; null x/y forgets a dragged spot.
+export const saveLayout = (userId, items) => put(`${userBase(userId)}/layout`, { items });

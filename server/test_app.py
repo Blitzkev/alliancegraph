@@ -445,6 +445,44 @@ def test_reorder_rejects_bad_ids(client, ids):
     assert client.put("/alliances/order", json={"ids": ids}).status_code == 400
 
 
+# --- dragged layout ---
+
+
+def test_save_and_clear_layout(client):
+    lead = founder(client)
+    loner = alliance(client)
+    items = [
+        {"kind": "family", "id": lead["familyId"], "x": 10, "y": -20.5},
+        {"kind": "academy", "id": lead["familyId"], "x": 3, "y": 4},
+        {"kind": "alliance", "id": loner["id"], "x": 0, "y": 99},
+    ]
+    assert client.put("/layout", json={"items": items}).status_code == 200
+    family = client.families()[0]
+    assert (family["layout"], family["academyLayout"]) == ({"x": 10, "y": -20.5}, {"x": 3, "y": 4})
+    assert client.alliance(loner["id"])["layout"] == {"x": 0, "y": 99}
+    clear = [{**i, "x": None, "y": None} for i in items]
+    client.put("/layout", json={"items": clear})
+    assert "layout" not in client.families()[0] and "layout" not in client.alliance(loner["id"])
+
+
+@pytest.mark.parametrize(
+    "item",
+    [{"kind": "nope", "id": "x", "x": 1, "y": 1}, {"kind": "family", "id": "missing", "x": 1, "y": 1},
+     {"kind": "alliance", "id": "x", "x": "1", "y": 1}, {"kind": "alliance", "id": "x", "x": True, "y": 1},
+     {"kind": "alliance", "id": "x", "x": 1, "y": None}],
+)
+def test_bad_layout_rejected(client, item):
+    assert client.put("/layout", json={"items": [item]}).status_code == 400
+
+
+def test_joining_a_family_forgets_dragged_spot(client):
+    lead = founder(client)
+    loner = alliance(client)
+    client.put("/layout", json={"items": [{"kind": "alliance", "id": loner["id"], "x": 5, "y": 5}]})
+    client.patch(f"/alliances/{loner['id']}", json={"role": "family", "familyWith": [lead["id"]]})
+    assert "layout" not in client.alliance(loner["id"])
+
+
 # --- migrating old data ---
 
 

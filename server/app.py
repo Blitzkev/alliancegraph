@@ -2,14 +2,17 @@
 
 Data model (one file per user, "version": DATA_VERSION):
   servers    [{number}]
-  families   [{id, server, createdAt}]   an unnamed set of alliances; exists while it has a member
-  alliances  [{id, name, tag, server, power, notes, familyId, academyOf, alliedFamilyIds, position?}]
+  families   [{id, server, createdAt, layout?, academyLayout?}]   an unnamed set of alliances; exists
+             while it has a member. layout/academyLayout: where its bubbles were dragged ({x, y}).
+  alliances  [{id, name, tag, server, power, notes, familyId, academyOf, alliedFamilyIds, position?,
+              layout?}]   position: order within its bubble; layout: where an independent was dragged
 An alliance is a member of at most one family (familyId), OR an academy of exactly one family
 (academyOf), or neither. It can also be allied with any number of other families. A family is led by
 its strongest member (highest power, ties by name). Families and their alliances share a server.
 """
 
 import json
+import math
 import os
 import re
 import tempfile
@@ -438,7 +441,9 @@ def apply_alliance(data, alliance, fields):
         # academyOf already set from fields (None for an independent alliance)
 
     if (alliance["familyId"], alliance["academyOf"]) != before:
-        alliance.pop("position", None)  # its old row position means nothing in a new row
+        # Its old order and dragged spot mean nothing in a different group.
+        alliance.pop("position", None)
+        alliance.pop("layout", None)
     tidy(data)
 
 
@@ -584,6 +589,39 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
                 by_id[alliance_id]["position"] = position
             store.save(user_id, data)
         return jsonify([by_id[i] for i in ids])
+
+    @app.put("/api/users/<user_id>/layout")
+    def save_layout(user_id):
+        """Remember where things were dragged in the graph. Body: {items: [{kind, id, x, y}]} with kind
+        "family" (its bubble), "academy" (its academies' bubble) or "alliance" (an independent);
+        x and y null clear the saved spot."""
+        payload = body()
+        items = payload.get("items") if payload else None
+        number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        if not isinstance(items, list) or not all(
+            isinstance(i, dict)
+            and i.get("kind") in ("family", "academy", "alliance")
+            and isinstance(i.get("id"), str)
+            and ((number(i.get("x")) and number(i.get("y"))) or (i.get("x") is None and i.get("y") is None))
+            for i in items
+        ):
+            return jsonify({"errors": {"items": "items must be [{kind, id, x, y}] with numeric (or null) x and y."}}), 400
+        with store.lock:
+            require_user(user_id)
+            data = store.load(user_id)
+            families = {f["id"]: f for f in data["families"]}
+            alliances = {a["id"]: a for a in data["alliances"]}
+            for item in items:
+                target, key = (alliances, "layout") if item["kind"] == "alliance" else (
+                    families, "layout" if item["kind"] == "family" else "academyLayout")
+                if item["id"] not in target:
+                    return jsonify({"errors": {"items": f"Unknown {item['kind']}: {item['id']}"}}), 400
+                if item["x"] is None:
+                    target[item["id"]].pop(key, None)
+                else:
+                    target[item["id"]][key] = {"x": item["x"], "y": item["y"]}
+            store.save(user_id, data)
+        return jsonify({"ok": True})
 
     @app.patch("/api/users/<user_id>/alliances/<alliance_id>")
     def update_alliance(user_id, alliance_id):

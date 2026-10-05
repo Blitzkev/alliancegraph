@@ -144,10 +144,13 @@ select, input {
   pointer-events: none;
 }
 
-.fit-btn { position: absolute; top: 12px; left: 12px; padding: 5px 12px; }
+.graph-buttons { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; }
+.graph-buttons .btn { padding: 5px 12px; }
 
 /* Family and academy bubbles */
 .bubble ellipse, .legend-family, .legend-academy { stroke-width: 1.5; cursor: pointer; }
+.bubble ellipse.draggable { cursor: grab; }
+.bubble ellipse.draggable:active { cursor: grabbing; }
 .bubble-family ellipse, .legend-family { fill: #dbeafe; fill-opacity: 0.7; stroke: #93c5fd; }
 .bubble-academy ellipse, .legend-academy { fill: #dcfce7; fill-opacity: 0.8; stroke: #86efac; }
 .bubble.selected ellipse { stroke: #111827; stroke-width: 3; }

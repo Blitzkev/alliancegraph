@@ -20,8 +20,10 @@ Each server/kingdom has its own tab above the graph (creating one opens its tab)
 kingdom at a time. Each family is a light blue bubble around its alliances (tag and power; the leader
 in amber), with a light green bubble of its academies just below it, joined by a dotted line.
 Independent alliances sit in a row at the bottom, and dashed lines show which families an alliance is
-allied with. Drag alliances to reorder them within their bubble, and click a bubble or an alliance to
-see details (members, academies, allies, notes) in a side panel.
+allied with. Drag a bubble or an independent alliance to move it anywhere (positions are saved;
+"Reset layout" puts the kingdom back to the automatic arrangement), drag an alliance inside a bubble to
+reorder it, and click a bubble or an alliance to see details (members, academies, allies, notes) in a
+side panel. Tags are shown as `[#TAG]`.
 
 Notes (up to 200,000 characters) are stored exactly as typed. **Power** is a whole number from 0 to
 2^64-1, shown as e.g. `1,200,000`; it travels as a digit string because browsers can't represent
@@ -153,6 +155,7 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | DELETE | `<u>/servers/<number>`       | Deletes the server and everything on it                             |
 | POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, role?, familyWith?, academyOf?, alliedFamilyIds?}` → `201` alliance |
 | PATCH  | `<u>/alliances/<id>`         | Any of the above except `server`; omitted relationship fields keep their current values |
+| PUT    | `<u>/layout`                 | `{items: [{kind: family\|academy\|alliance, id, x, y}]}`: remember dragged positions (null x/y clears) |
 | PUT    | `<u>/alliances/order`        | `{ids: [...]}` → sets each alliance's display position to its index  |
 | DELETE | `<u>/alliances/<id>`         | `{deleted: [ids]}`. For a family's last member with academies add `?academies=detach`, `?academies=delete` or `?academies=move&moveTo=<family id>` (otherwise `409`) |
 
