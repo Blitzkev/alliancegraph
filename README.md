@@ -11,10 +11,13 @@ Three kinds of things live on each server:
   strongest remaining member (by power) takes over.
 - **Academies**: a named group of alliances that can be protected by any number of families.
 
-The graph draws each server as three rows: family hubs on top, alliances in the middle, academy hubs
-below. Every alliance appears once and connects to each group it belongs to (amber for a family's root);
-dotted arcs show which families protect which academies. Drag alliances sideways to reorder them, and
-click anything to see its details (members, notes, memberships) in a side panel.
+The graph draws each server as a stack of rows: one per family (oldest first, so a new family lands
+at the bottom), then one per academy, then alliances in no group. Each row is the family/academy on the
+left with its alliances to the right. Every alliance appears once, in its first family's row; its
+other families and academies reach it with a curved line (amber marks a family's root), and dotted
+arcs down the left show which families protect which academies. Drag alliances sideways to reorder
+them within their row, and click anything to see its details (members, notes, memberships) in a side
+panel.
 
 Notes (up to 200,000 characters) are stored exactly as typed. **Power** is a whole number from 0 to
 2^64-1, shown as e.g. `1,200,000`; it travels as a digit string because browsers can't represent
