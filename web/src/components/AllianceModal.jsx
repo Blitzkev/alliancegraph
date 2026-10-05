@@ -11,19 +11,17 @@ import {
   formatTag,
   parsePower,
   roleOf,
-  sortByName,
   sortFamilies,
 } from "../format";
 import NotesField, { notesError } from "./NotesField";
 import PowerField, { powerError } from "./PowerField";
+import TagSearch from "./TagSearch";
 
 const ROLES = [
   { value: "none", label: "Independent" },
   { value: "family", label: "Family member" },
   { value: "academy", label: "Academy of a family" },
 ];
-
-const toggle = (list, id) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
 // "[#TAG] Name", with the tag bold and larger.
 function AllianceLabel({ alliance }) {
@@ -50,36 +48,54 @@ function FamilyLabel({ familyId, alliances, self, note }) {
   );
 }
 
-// "In a family with": whole families (picked as a unit) and independent alliances.
-function FamilyPicker({ families, independents, alliances, self, picked, onPick, loners, onLoners, error }) {
-  const mergeCount = picked.length;
-  const nothing = picked.length === 0 && loners.length === 0;
-  const ownFamilyAlone = self?.familyId && picked.length === 1 && picked[0] === self.familyId &&
-    familyMembers(self.familyId, alliances).length === 1;
+// A picked family or alliance, shown as a removable chip.
+function Chip({ children, onRemove, label }) {
+  return (
+    <div className="chip">
+      <div className="chip-body">{children}</div>
+      <button type="button" className="chip-remove" onClick={onRemove} aria-label={`Remove ${label}`} title="Remove">
+        ×
+      </button>
+    </div>
+  );
+}
+
+const relationshipNote = (a, alliances) =>
+  a.familyId ? `in ${formatFamily(a.familyId, alliances)}` : "independent";
+
+// "In a family with": search by tag and pick one alliance. Picking a family member picks its whole
+// family; picking an independent alliance forms a new family with it.
+function FamilyPicker({ candidates, alliances, self, pick, onPick, error }) {
+  const ownFamilyAlone = self?.familyId && familyMembers(self.familyId, alliances).length === 1;
   return (
     <fieldset className="group-checklist type-family">
       <legend>In a family with</legend>
-      {families.length === 0 && independents.length === 0 && (
-        <p className="muted">No other alliances on this server yet.</p>
+      {pick ? (
+        <Chip
+          onRemove={() => onPick(null)}
+          label={pick.kind === "family" ? formatFamily(pick.id, alliances) : "alliance"}
+        >
+          {pick.kind === "family" ? (
+            <FamilyLabel familyId={pick.id} alliances={alliances} self={self} />
+          ) : (
+            <AllianceLabel alliance={alliances.find((a) => a.id === pick.id)} />
+          )}
+        </Chip>
+      ) : (
+        <>
+          <TagSearch
+            alliances={candidates}
+            onPick={(a) => onPick(a.familyId ? { kind: "family", id: a.familyId } : { kind: "alliance", id: a.id })}
+            describe={(a) => relationshipNote(a, alliances)}
+            placeholder="Search by tag, e.g. G86H"
+          />
+          <p className="muted">
+            {ownFamilyAlone
+              ? "Nothing picked: it stays a family on its own."
+              : "Nothing picked: this alliance starts a new family on its own."}
+          </p>
+        </>
       )}
-      {families.map((f) => (
-        <label key={f.id} className="checkbox family-option">
-          <input type="checkbox" checked={picked.includes(f.id)} onChange={() => onPick(toggle(picked, f.id))} />
-          <FamilyLabel familyId={f.id} alliances={alliances} self={self} />
-        </label>
-      ))}
-      {independents.length > 0 && <div className="checklist-heading">Independent alliances</div>}
-      {independents.map((a) => (
-        <label key={a.id} className="checkbox">
-          <input type="checkbox" checked={loners.includes(a.id)} onChange={() => onLoners(toggle(loners, a.id))} />
-          <AllianceLabel alliance={a} />
-        </label>
-      ))}
-      {mergeCount > 1 && (
-        <p className="warning">These {mergeCount} families will be merged into one family.</p>
-      )}
-      {nothing && <p className="muted">Nothing picked: this alliance starts a new family on its own.</p>}
-      {ownFamilyAlone && loners.length === 0 && <p className="muted">It stays a family of one.</p>}
       {error && <span className="error">{error}</span>}
     </fieldset>
   );
@@ -106,8 +122,13 @@ export default function AllianceModal({
     notes: alliance?.notes ?? "",
   });
   const [role, setRole] = useState(alliance ? roleOf(alliance) : "none");
-  const [pickedFamilies, setPickedFamilies] = useState(alliance?.familyId ? [alliance.familyId] : []);
-  const [pickedLoners, setPickedLoners] = useState([]);
+  // { kind: "family" | "alliance", id }: the family to join, or an independent to form one with.
+  // An alliance editing its own family starts with it picked (unless it's alone in it).
+  const [familyPick, setFamilyPick] = useState(() =>
+    alliance?.familyId && familyMembers(alliance.familyId, alliances).length > 1
+      ? { kind: "family", id: alliance.familyId }
+      : null,
+  );
   const [academyOf, setAcademyOf] = useState(alliance?.academyOf ?? "");
   const [allied, setAllied] = useState(alliance?.alliedFamilyIds ?? []);
   const [errors, setErrors] = useState({});
@@ -115,11 +136,11 @@ export default function AllianceModal({
 
   // Relationships only ever stay within one server.
   const serverFamilies = sortFamilies(families.filter((f) => f.server === server));
-  const independents = sortByName(
-    alliances.filter((a) => a.server === server && roleOf(a) === "none" && a.id !== alliance?.id),
-  );
+  const others = alliances.filter((a) => a.server === server && a.id !== alliance?.id);
   // Families this alliance will belong to / be an academy of can't also be allied.
-  const ownFamilies = role === "family" ? pickedFamilies : role === "academy" && academyOf ? [academyOf] : [];
+  const ownFamily =
+    role === "family" ? (familyPick?.kind === "family" ? familyPick.id : alliance?.familyId) : role === "academy" ? academyOf : null;
+  const alliedShown = allied.filter((id) => id !== ownFamily);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -130,8 +151,7 @@ export default function AllianceModal({
   const setField = (key) => (value) => setFields((f) => ({ ...f, [key]: value }));
   const changeServer = (value) => {
     setServer(value);
-    setPickedFamilies([]);
-    setPickedLoners([]);
+    setFamilyPick(null);
     setAcademyOf("");
     setAllied([]);
   };
@@ -154,10 +174,11 @@ export default function AllianceModal({
     setErrors(found);
     if (Object.keys(found).length) return;
 
-    const familyWith = [
-      ...pickedFamilies.flatMap((id) => familyMembers(id, alliances).map((a) => a.id)),
-      ...pickedLoners,
-    ].filter((id) => id !== alliance?.id);
+    const familyWith = !familyPick
+      ? []
+      : familyPick.kind === "family"
+        ? familyMembers(familyPick.id, alliances).map((a) => a.id).filter((id) => id !== alliance?.id)
+        : [familyPick.id];
     const body = {
       ...fields,
       power: parsePower(fields.power),
@@ -165,7 +186,7 @@ export default function AllianceModal({
       role,
       familyWith,
       academyOf: role === "academy" ? academyOf : null,
-      alliedFamilyIds: allied.filter((id) => !ownFamilies.includes(id)),
+      alliedFamilyIds: alliedShown,
     };
     setBusy(true);
     try {
@@ -241,14 +262,12 @@ export default function AllianceModal({
 
                 {role === "family" && (
                   <FamilyPicker
-                    families={serverFamilies}
-                    independents={independents}
+                    // Academies can't be in a family, so they aren't offered.
+                    candidates={others.filter((a) => roleOf(a) !== "academy")}
                     alliances={alliances}
                     self={alliance}
-                    picked={pickedFamilies}
-                    onPick={setPickedFamilies}
-                    loners={pickedLoners}
-                    onLoners={setPickedLoners}
+                    pick={familyPick}
+                    onPick={setFamilyPick}
                     error={errors.familyWith}
                   />
                 )}
@@ -272,27 +291,24 @@ export default function AllianceModal({
                 {serverFamilies.length > 0 && (
                   <fieldset className="group-checklist type-family">
                     <legend>
-                      Allied with families <small>({allied.filter((id) => !ownFamilies.includes(id)).length} selected)</small>
+                      Allied with families <small>({alliedShown.length} selected)</small>
                     </legend>
-                    {serverFamilies.map((f) => {
-                      const own = ownFamilies.includes(f.id);
-                      return (
-                        <label key={f.id} className={`checkbox family-option${own ? " disabled" : ""}`}>
-                          <input
-                            type="checkbox"
-                            checked={!own && allied.includes(f.id)}
-                            onChange={() => setAllied(toggle(allied, f.id))}
-                            disabled={own}
-                          />
-                          <FamilyLabel
-                            familyId={f.id}
-                            alliances={alliances}
-                            self={alliance}
-                            note={own ? "(its own family)" : null}
-                          />
-                        </label>
-                      );
-                    })}
+                    {alliedShown.map((id) => (
+                      <Chip
+                        key={id}
+                        onRemove={() => setAllied(allied.filter((x) => x !== id))}
+                        label={formatFamily(id, alliances)}
+                      >
+                        <FamilyLabel familyId={id} alliances={alliances} self={alliance} />
+                      </Chip>
+                    ))}
+                    <TagSearch
+                      // Only family members lead to a family; its own family and ones already added are left out.
+                      alliances={others.filter((a) => a.familyId && a.familyId !== ownFamily && !allied.includes(a.familyId))}
+                      onPick={(a) => setAllied([...allied, a.familyId])}
+                      describe={(a) => relationshipNote(a, alliances)}
+                      placeholder="Search by tag to add a family"
+                    />
                     {errors.alliedFamilyIds && <span className="error">{errors.alliedFamilyIds}</span>}
                   </fieldset>
                 )}

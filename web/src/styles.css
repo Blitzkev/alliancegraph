@@ -350,8 +350,6 @@ textarea.notes {
   border-radius: 8px;
   padding: 8px 12px 10px;
   margin: 0 0 12px;
-  max-height: 180px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -374,6 +372,49 @@ textarea.notes {
 .alliance-label-tag { font-size: 0.98rem; font-weight: 700; color: var(--text); }
 .alliance-label-name { font-size: 0.85rem; font-weight: 400; color: var(--text); }
 .family-label { display: flex; flex-direction: column; gap: 1px; }
+
+/* Type-ahead tag search and the chips it produces */
+.tag-search { position: relative; }
+.tag-search input { width: 100%; }
+.tag-search-results {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.tag-search-results li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.tag-search-results li.active { background: #eff6ff; }
+.tag-search-results li.empty { cursor: default; color: var(--muted); font-size: 0.85rem; }
+.chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+}
+.chip-body { flex: 1; min-width: 0; }
+.chip-remove {
+  border: none;
+  background: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.chip-remove:hover { color: var(--danger); }
 .modal .group-checklist label.family-option { padding: 4px 0; border-bottom: 1px solid var(--border); }
 .modal .group-checklist label.family-option:last-of-type { border-bottom: none; }
 .modal .group-checklist label.checkbox.disabled .alliance-label-tag,
