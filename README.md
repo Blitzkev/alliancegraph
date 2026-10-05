@@ -15,8 +15,8 @@ Three kinds of things live on each server:
   member (or a root candidate) of that family.
 
 Each server/kingdom has its own tab above the graph (creating one opens its tab); the graph shows one
-kingdom at a time as a stack of rows: one per family (oldest first, so a new family lands
-at the bottom), then one per academy, then alliances in no group. Each row is the family/academy on the
+kingdom at a time as a stack of rows: each family (oldest first) followed by the academies it
+protects, then academies no family protects, then alliances in no group. Each row is the family/academy on the
 left with its alliances (tag and power; details in the side panel) to the right. Every alliance appears once, in its first family's row; its
 other families and academies reach it with a curved line (amber marks a family's root), and dotted
 arcs down the left show which families protect which academies. Drag alliances sideways to reorder

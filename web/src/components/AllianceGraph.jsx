@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import { byPower, formatAlliance, formatPower, formatServer, GROUP, membersOf } from "../format";
 
-// The selected kingdom (server) is drawn as a stack of bands, one per family (oldest first), then one per academy, then one
-// for alliances in no group. A band is its hub on the left with alliances in a row to its right.
+// The selected kingdom (server) is drawn as a stack of bands: each family (oldest first) followed by
+// the academies it protects, then academies no family protects, then alliances in no group. A band is
+// its hub on the left with alliances in a row to its right.
 // Every alliance is drawn once, in the band of its first family (else first academy); its other
 // groups reach it with a curved line.
 const COLORS = {
@@ -124,11 +125,21 @@ export default function AllianceGraph({ server, families, academies, alliances, 
       const serverAlliances = on(alliances);
       const rootIds = new Set(serverFamilies.map((f) => f.rootId));
 
-      // Bands: families (oldest first), academies, then alliances in no group.
-      const bands = [
-        ...serverFamilies.map((group) => ({ kind: "family", group, members: [] })),
-        ...serverAcademies.map((group) => ({ kind: "academy", group, members: [] })),
-      ];
+      // Bands: each family followed by the academies it protects (an academy protected by several
+      // families sits under the first of them), then unprotected academies, then ungrouped alliances.
+      const bands = [];
+      const placedAcademies = new Set();
+      const academyBand = (group) => {
+        placedAcademies.add(group.id);
+        return { kind: "academy", group, members: [] };
+      };
+      for (const family of serverFamilies) {
+        bands.push({ kind: "family", group: family, members: [] });
+        for (const academy of serverAcademies) {
+          if (!placedAcademies.has(academy.id) && academy.familyIds.includes(family.id)) bands.push(academyBand(academy));
+        }
+      }
+      bands.push(...serverAcademies.filter((a) => !placedAcademies.has(a.id)).map(academyBand));
       const bandOf = new Map(bands.map((b) => [keyOf(b.kind, b.group.id), b]));
       const ungrouped = { kind: "none", group: { id: "none", name: "No family or academy" }, members: [] };
       for (const a of serverAlliances) {
