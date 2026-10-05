@@ -8,6 +8,7 @@ import {
   formatFamily,
   formatPower,
   formatServer,
+  formatTag,
   parsePower,
   roleOf,
   sortByName,
@@ -24,6 +25,31 @@ const ROLES = [
 
 const toggle = (list, id) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
+// "[#TAG] Name", with the tag bold and larger.
+function AllianceLabel({ alliance }) {
+  return (
+    <span className="alliance-label">
+      <strong className="alliance-label-tag">{formatTag(alliance.tag)}</strong>{" "}
+      <span className="alliance-label-name">{alliance.name}</span>
+    </span>
+  );
+}
+
+// A family shown as its members, strongest first (leaving out the alliance being edited).
+function FamilyLabel({ familyId, alliances, self, note }) {
+  const members = familyMembers(familyId, alliances).filter((a) => a.id !== self?.id).sort(byPower);
+  return (
+    <span className="family-label">
+      {members.length ? (
+        members.map((m) => <AllianceLabel key={m.id} alliance={m} />)
+      ) : (
+        <small className="muted">only this alliance</small>
+      )}
+      {note && <small className="muted">{note}</small>}
+    </span>
+  );
+}
+
 // "In a family with": whole families (picked as a unit) and independent alliances.
 function FamilyPicker({ families, independents, alliances, self, picked, onPick, loners, onLoners, error }) {
   const mergeCount = picked.length;
@@ -36,25 +62,17 @@ function FamilyPicker({ families, independents, alliances, self, picked, onPick,
       {families.length === 0 && independents.length === 0 && (
         <p className="muted">No other alliances on this server yet.</p>
       )}
-      {families.map((f) => {
-        const members = familyMembers(f.id, alliances).filter((a) => a.id !== self?.id).sort(byPower);
-        return (
-          <label key={f.id} className="checkbox family-option">
-            <input type="checkbox" checked={picked.includes(f.id)} onChange={() => onPick(toggle(picked, f.id))} />
-            <span>
-              {formatFamily(f.id, alliances)}
-              <small className="member-tags">
-                {members.length ? members.map((m) => m.tag).join(", ") : "only this alliance"}
-              </small>
-            </span>
-          </label>
-        );
-      })}
+      {families.map((f) => (
+        <label key={f.id} className="checkbox family-option">
+          <input type="checkbox" checked={picked.includes(f.id)} onChange={() => onPick(toggle(picked, f.id))} />
+          <FamilyLabel familyId={f.id} alliances={alliances} self={self} />
+        </label>
+      ))}
       {independents.length > 0 && <div className="checklist-heading">Independent alliances</div>}
       {independents.map((a) => (
         <label key={a.id} className="checkbox">
           <input type="checkbox" checked={loners.includes(a.id)} onChange={() => onLoners(toggle(loners, a.id))} />
-          <span>{formatAlliance(a)}</span>
+          <AllianceLabel alliance={a} />
         </label>
       ))}
       {mergeCount > 1 && (
@@ -259,17 +277,19 @@ export default function AllianceModal({
                     {serverFamilies.map((f) => {
                       const own = ownFamilies.includes(f.id);
                       return (
-                        <label key={f.id} className={`checkbox${own ? " disabled" : ""}`}>
+                        <label key={f.id} className={`checkbox family-option${own ? " disabled" : ""}`}>
                           <input
                             type="checkbox"
                             checked={!own && allied.includes(f.id)}
                             onChange={() => setAllied(toggle(allied, f.id))}
                             disabled={own}
                           />
-                          <span>
-                            {formatFamily(f.id, alliances)}
-                            {own && <small> (its own family)</small>}
-                          </span>
+                          <FamilyLabel
+                            familyId={f.id}
+                            alliances={alliances}
+                            self={alliance}
+                            note={own ? "(its own family)" : null}
+                          />
                         </label>
                       );
                     })}

@@ -368,7 +368,15 @@ textarea.notes {
   letter-spacing: 0.04em;
   color: var(--muted);
 }
-.family-option .member-tags { display: block; font-weight: 400; color: var(--muted); }
+/* "[#TAG] Name" in the alliance form's pickers; a family lists its members one per line */
+.alliance-label { display: block; line-height: 1.35; }
+.alliance-label-tag { font-size: 0.98rem; font-weight: 700; color: var(--text); }
+.alliance-label-name { font-size: 0.85rem; font-weight: 400; color: var(--text); }
+.family-label { display: flex; flex-direction: column; gap: 1px; }
+.modal .group-checklist label.family-option { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.modal .group-checklist label.family-option:last-of-type { border-bottom: none; }
+.modal .group-checklist label.checkbox.disabled .alliance-label-tag,
+.modal .group-checklist label.checkbox.disabled .alliance-label-name { color: var(--muted); }
 .warning {
   margin: 4px 0 0;
   padding: 6px 8px;

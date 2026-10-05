@@ -9,6 +9,7 @@ import {
   formatFamily,
   formatPower,
   formatServer,
+  formatTag,
   sortFamilies,
 } from "../format";
 
@@ -32,7 +33,6 @@ const ACADEMY_GAP = 36; // between a family's bubble and its academies' bubble
 const FAMILY_GAP = 56; // between one family (with its academies) and the next
 
 const keyOf = (kind, id) => `${kind}:${id}`;
-const formatTag = (tag) => `[#${tag.toUpperCase()}]`;
 
 // Order within a bubble: anything the user arranged by dragging first, then strongest (so a family's
 // leader comes first).

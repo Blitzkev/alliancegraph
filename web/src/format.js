@@ -1,5 +1,8 @@
 export const formatAlliance = (a) => `[#${a.tag}][#${a.server}]${a.name}`;
 
+// Tag as shown on graph nodes and in pickers: [#POE1].
+export const formatTag = (tag) => `[#${tag.toUpperCase()}]`;
+
 // Count code points, not UTF-16 units, so limits match the server.
 export const charLength = (s) => Array.from(s).length;
 
