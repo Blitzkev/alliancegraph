@@ -10,6 +10,9 @@ Three kinds of things live on each server:
   edit form); the first member becomes root automatically, and if the root leaves or is deleted the
   strongest remaining member (by power) takes over.
 - **Academies**: a named group of alliances that can be protected by any number of families.
+- **Allied**: an alliance can also be *allied* with any number of families it isn't a member of, e.g. a
+  "loner" that is roughly aligned with a family. Shown as a dashed line; it doesn't make the alliance a
+  member (or a root candidate) of that family.
 
 The graph draws each server as a stack of rows: one per family (oldest first, so a new family lands
 at the bottom), then one per academy, then alliances in no group. Each row is the family/academy on the
@@ -153,8 +156,8 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | POST   | `<u>/academies`              | `{name, server, familyIds?}` → `201` academy                         |
 | PATCH  | `<u>/academies/<id>`         | Any of `{name, familyIds}`                                           |
 | DELETE | `<u>/families/<id>`, `<u>/academies/<id>` | Deletes the group; its alliances are kept              |
-| POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, familyIds?, academyIds?}` → `201` alliance |
-| PATCH  | `<u>/alliances/<id>`         | Any of `{name, tag, power, notes, familyIds, academyIds}`. Server is fixed |
+| POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, familyIds?, academyIds?, alliedFamilyIds?}` → `201` alliance |
+| PATCH  | `<u>/alliances/<id>`         | Any of `{name, tag, power, notes, familyIds, academyIds, alliedFamilyIds}`. Server is fixed; a family can't be in both `familyIds` and `alliedFamilyIds` |
 | PUT    | `<u>/alliances/order`        | `{ids: [...]}` → sets each alliance's display position to its index  |
 | DELETE | `<u>/alliances/<id>`         | `{deleted: [id]}`                                                   |
 

@@ -12,25 +12,31 @@ import {
 import NotesField, { notesError } from "./NotesField";
 import PowerField, { powerError } from "./PowerField";
 
-// Pick any number of a server's families or academies.
-function GroupChecklist({ kind, groups, selected, onChange, rootIds, error }) {
+// Pick any number of a server's families or academies. `disabledIds` are shown but can't be picked.
+function GroupChecklist({ kind, title, groups, selected, onChange, rootIds = [], disabledIds = [], disabledNote, error }) {
   const { plural, label } = GROUP[kind];
   const toggle = (id) =>
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
     <fieldset className={`group-checklist type-${kind}`}>
       <legend>
-        {plural} <small>({selected.length} selected)</small>
+        {title ?? plural} <small>({selected.length} selected)</small>
       </legend>
       {groups.length === 0 ? (
         <p className="muted">No {plural.toLowerCase()} on this server yet. Create one with “{label}”.</p>
       ) : (
         groups.map((g) => (
-          <label key={g.id} className="checkbox">
-            <input type="checkbox" checked={selected.includes(g.id)} onChange={() => toggle(g.id)} />
+          <label key={g.id} className={`checkbox${disabledIds.includes(g.id) ? " disabled" : ""}`}>
+            <input
+              type="checkbox"
+              checked={selected.includes(g.id)}
+              onChange={() => toggle(g.id)}
+              disabled={disabledIds.includes(g.id)}
+            />
             <span>
               {g.name}
               {rootIds.includes(g.id) && <span className="root-badge">Root</span>}
+              {disabledIds.includes(g.id) && <small> ({disabledNote})</small>}
             </span>
           </label>
         ))
@@ -60,6 +66,7 @@ export default function AllianceModal({
     notes: alliance?.notes ?? "",
     familyIds: alliance?.familyIds ?? [],
     academyIds: alliance?.academyIds ?? [],
+    alliedFamilyIds: alliance?.alliedFamilyIds ?? [],
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -78,7 +85,7 @@ export default function AllianceModal({
   const setField = (key) => (value) => setFields((f) => ({ ...f, [key]: value }));
   const changeServer = (value) => {
     setServer(value);
-    setFields((f) => ({ ...f, familyIds: [], academyIds: [] }));
+    setFields((f) => ({ ...f, familyIds: [], academyIds: [], alliedFamilyIds: [] }));
   };
 
   const handleSubmit = async (e) => {
@@ -165,18 +172,36 @@ export default function AllianceModal({
               <>
                 <GroupChecklist
                   kind="family"
+                  title="Member of families"
                   groups={serverFamilies}
                   selected={fields.familyIds}
-                  onChange={setField("familyIds")}
+                  // Joining a family replaces being allied with it.
+                  onChange={(ids) =>
+                    setFields((f) => ({
+                      ...f,
+                      familyIds: ids,
+                      alliedFamilyIds: f.alliedFamilyIds.filter((id) => !ids.includes(id)),
+                    }))
+                  }
                   rootIds={rootIds}
                   error={errors.familyIds}
                 />
                 <GroupChecklist
+                  kind="family"
+                  title="Allied with families"
+                  groups={serverFamilies}
+                  selected={fields.alliedFamilyIds}
+                  onChange={setField("alliedFamilyIds")}
+                  disabledIds={fields.familyIds}
+                  disabledNote="member"
+                  error={errors.alliedFamilyIds}
+                />
+                <GroupChecklist
                   kind="academy"
+                  title="Member of academies"
                   groups={serverAcademies}
                   selected={fields.academyIds}
                   onChange={setField("academyIds")}
-                  rootIds={[]}
                   error={errors.academyIds}
                 />
               </>

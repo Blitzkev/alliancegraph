@@ -292,7 +292,7 @@ def test_alliance_can_be_root_of_several_families(client):
 
 def test_alliance_with_no_groups(client):
     a = alliance(client)
-    assert (a["familyIds"], a["academyIds"]) == ([], [])
+    assert (a["familyIds"], a["academyIds"], a["alliedFamilyIds"]) == ([], [], [])
 
 
 def test_alliance_in_many_groups(client):
@@ -356,6 +356,66 @@ def test_update_rejects_tag_used_by_another(client):
 def test_update_missing_is_404(client):
     assert client.patch("/alliances/nope", json={}).status_code == 404
     assert client.patch("/families/nope", json={}).status_code == 404
+
+
+# --- allied families ---
+
+
+def test_alliance_allied_with_families(client):
+    f1, f2 = family(client), family(client)
+    loner = alliance(client, alliedFamilyIds=[f1["id"], f2["id"]])
+    assert (loner["familyIds"], loner["alliedFamilyIds"]) == ([], [f1["id"], f2["id"]])
+    # Allies aren't members, so they never become a family's root.
+    assert client.one("families", f1["id"])["rootId"] is None
+
+
+def test_allied_and_member_of_different_families(client):
+    f1, f2 = family(client), family(client)
+    a = alliance(client, familyIds=[f1["id"]], alliedFamilyIds=[f2["id"]])
+    assert (a["familyIds"], a["alliedFamilyIds"]) == ([f1["id"]], [f2["id"]])
+
+
+def test_cannot_be_allied_with_own_family(client):
+    f = family(client)
+    res = make(client, familyIds=[f["id"]], alliedFamilyIds=[f["id"]])
+    assert "alliedFamilyIds" in res.get_json()["errors"]
+    a = alliance(client, familyIds=[f["id"]])
+    res = client.patch(f"/alliances/{a['id']}", json={"alliedFamilyIds": [f["id"]]})
+    assert "alliedFamilyIds" in res.get_json()["errors"]
+
+
+def test_allied_families_must_exist_on_same_server(client):
+    elsewhere = family(client, server="4181")
+    for ids in (["nope"], [elsewhere["id"]], "x"):
+        assert "alliedFamilyIds" in make(client, alliedFamilyIds=ids).get_json()["errors"], ids
+
+
+def test_update_allied_families(client):
+    f = family(client)
+    a = alliance(client)
+    res = client.patch(f"/alliances/{a['id']}", json={"alliedFamilyIds": [f["id"]]})
+    assert res.get_json()["alliedFamilyIds"] == [f["id"]]
+    assert client.patch(f"/alliances/{a['id']}", json={"name": "X"}).get_json()["alliedFamilyIds"] == [f["id"]]
+
+
+def test_deleting_family_removes_allied_links(client):
+    f = family(client)
+    a = alliance(client, alliedFamilyIds=[f["id"]])
+    client.delete(f"/families/{f['id']}")
+    assert client.one("alliances", a["id"])["alliedFamilyIds"] == []
+
+
+def test_adds_allied_field_to_existing_alliances(tmp_path):
+    user = new_user(create_app(tmp_path).test_client(), "old")
+    path = tmp_path / "users" / f"{user.user_id}.json"
+    stored = json.loads(path.read_text())
+    stored.update(
+        servers=[{"number": "0042"}],
+        alliances=[{"id": "x", "name": "X", "tag": "X", "server": "0042", "power": "0", "notes": "",
+                    "familyIds": [], "academyIds": []}],
+    )
+    path.write_text(json.dumps(stored))
+    assert user.one("alliances", "x")["alliedFamilyIds"] == []
 
 
 # --- notes ---
@@ -439,6 +499,7 @@ def check_migrated(user):
     by_id = {a["id"]: a for a in graph["alliances"]}
     for a in graph["alliances"]:
         assert not {"type", "familyId", "isRoot", "rootId", "position"} & set(a), a
+        assert a["alliedFamilyIds"] == []
     families = {f["name"]: f for f in graph["families"]}
     assert set(families) == {"Root family", "Lonely family"}
     main, lonely = families["Root family"], families["Lonely family"]

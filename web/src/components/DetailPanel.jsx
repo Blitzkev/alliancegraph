@@ -64,6 +64,7 @@ function GroupLinks({ label, kind, groups, onSelect, rootIds = [] }) {
 
 function GroupDetails({ kind, group, families, academies, alliances, onSelect, onEditAlliance }) {
   const members = [...membersOf(kind, group.id, alliances)].sort(byPower);
+  const allies = alliances.filter((a) => a.alliedFamilyIds.includes(group.id)).sort(byPower);
   // The root is listed first.
   const ordered = kind === "family" ? [...members].sort((a, b) => (b.id === group.rootId) - (a.id === group.rootId)) : members;
   return (
@@ -80,6 +81,18 @@ function GroupDetails({ kind, group, families, academies, alliances, onSelect, o
           )}
         </ul>
       </li>
+      {kind === "family" && (
+        <li>
+          <span className="tree-group type-allied">Allied alliances ({allies.length})</span>
+          <ul>
+            {allies.length ? (
+              allies.map((a) => <AllianceItem key={a.id} alliance={a} isRoot={false} onEdit={onEditAlliance} />)
+            ) : (
+              <li className="tree-empty">None</li>
+            )}
+          </ul>
+        </li>
+      )}
       {kind === "family" ? (
         <GroupLinks
           label="Protects academies"
@@ -110,6 +123,12 @@ function AllianceDetails({ alliance, families, academies, onSelect }) {
           kind="family"
           groups={sortByName(families.filter((f) => alliance.familyIds.includes(f.id)))}
           rootIds={families.filter((f) => f.rootId === alliance.id).map((f) => f.id)}
+          onSelect={onSelect}
+        />
+        <GroupLinks
+          label="Allied with families"
+          kind="family"
+          groups={sortByName(families.filter((f) => alliance.alliedFamilyIds.includes(f.id)))}
           onSelect={onSelect}
         />
         <GroupLinks

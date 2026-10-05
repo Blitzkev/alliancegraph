@@ -4,8 +4,9 @@ Data model (one file per user):
   servers    [{number}]
   families   [{id, name, server, rootId}]      rootId: one member alliance, or null when empty
   academies  [{id, name, server, familyIds}]   familyIds: the families that protect it
-  alliances  [{id, name, tag, server, power, notes, familyIds, academyIds, position?}]
-Families, academies and their members always share a server.
+  alliances  [{id, name, tag, server, power, notes, familyIds, academyIds, alliedFamilyIds, position?}]
+             alliedFamilyIds: families it's allied with but not a member of
+Families, academies and their members/allies always share a server.
 """
 
 import json
@@ -126,6 +127,10 @@ def _upgrade(data):
             a.setdefault("academyIds", [])
         data["families"], data["academies"] = families, academies
         changed = True
+    for a in data["alliances"]:
+        if "alliedFamilyIds" not in a:
+            a["alliedFamilyIds"] = []
+            changed = True
     return changed
 
 
@@ -221,6 +226,7 @@ def tidy(data):
     for a in data["alliances"]:
         a["familyIds"] = [i for i in a["familyIds"] if i in family_ids]
         a["academyIds"] = [i for i in a["academyIds"] if i in academy_ids]
+        a["alliedFamilyIds"] = [i for i in a["alliedFamilyIds"] if i in family_ids]
     for academy in data["academies"]:
         academy["familyIds"] = [i for i in academy["familyIds"] if i in family_ids]
     for family in data["families"]:
@@ -282,7 +288,7 @@ def validate_alliance(payload, data, existing=None):
     if power is None:
         errors["power"] = f"Power must be a whole number from 0 to {POWER_MAX:,}."
 
-    family_ids = academy_ids = []
+    family_ids = academy_ids = allied_ids = []
     if "server" not in errors:
         family_ids, error = _clean_ids(payload.get("familyIds"), data["families"], server, "families")
         if error:
@@ -290,6 +296,11 @@ def validate_alliance(payload, data, existing=None):
         academy_ids, error = _clean_ids(payload.get("academyIds"), data["academies"], server, "academies")
         if error:
             errors["academyIds"] = error
+        allied_ids, error = _clean_ids(payload.get("alliedFamilyIds"), data["families"], server, "families")
+        if error:
+            errors["alliedFamilyIds"] = error
+        elif family_ids and set(allied_ids) & set(family_ids):
+            errors["alliedFamilyIds"] = "An alliance can't be allied with a family it's a member of."
 
     if "tag" not in errors and "server" not in errors:
         others = [a for a in data["alliances"] if a is not existing]
@@ -304,6 +315,7 @@ def validate_alliance(payload, data, existing=None):
         "notes": notes,
         "familyIds": family_ids,
         "academyIds": academy_ids,
+        "alliedFamilyIds": allied_ids,
     }
     return fields, errors
 

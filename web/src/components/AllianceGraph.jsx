@@ -196,6 +196,7 @@ export default function AllianceGraph({ servers, families, academies, alliances,
               formatAlliance(a),
               `Power: ${formatPower(a.power)}`,
               `Families: ${names(a.familyIds, familyById)}`,
+              ...(a.alliedFamilyIds.length ? [`Allied with: ${names(a.alliedFamilyIds, familyById)}`] : []),
               `Academies: ${names(a.academyIds, academyById)}`,
             ]),
           ).on("mouseleave", hideTooltip);
@@ -214,15 +215,16 @@ export default function AllianceGraph({ servers, families, academies, alliances,
       };
       for (const a of serverAlliances) {
         const p = pos.get(a.id);
-        for (const [kind, ids] of [
-          ["family", a.familyIds],
-          ["academy", a.academyIds],
+        for (const [kind, ids, link] of [
+          ["family", a.familyIds, "family"],
+          ["academy", a.academyIds, "academy"],
+          ["family", a.alliedFamilyIds, "allied"], // allies stay in their own row: always a curve
         ]) {
           for (const id of ids) {
             const band = bandOf.get(keyOf(kind, id));
             if (!band) continue;
-            const isRoot = kind === "family" && familyById.get(id)?.rootId === a.id;
-            const cls = isRoot ? "edge-root" : `edge-${kind}`;
+            const isRoot = link === "family" && familyById.get(id)?.rootId === a.id;
+            const cls = isRoot ? "edge-root" : `edge-${link}`;
             if (p.band === band) {
               // Its own band: along the bus line from the hub, then down into the alliance.
               addEdge(cls, [keyOf(kind, id), keyOf("alliance", a.id)], () => {
@@ -449,6 +451,7 @@ function LegendBody() {
       <div className="legend-row">{swatch("#fff7ed", COLORS.root, 3)} Root of a family</div>
       <div className="legend-row">{line("edge-family")} Family member</div>
       <div className="legend-row">{line("edge-root")} Family root</div>
+      <div className="legend-row">{line("edge-allied")} Allied with family</div>
       <div className="legend-row">{line("edge-academy")} Academy member</div>
       <div className="legend-row">{line("edge-link")} Family protects academy</div>
       <div className="legend-row">

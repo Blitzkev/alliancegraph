@@ -169,6 +169,7 @@ select, input {
 .edge-root { stroke: var(--root); stroke-width: 2.6; }
 .edge-academy { stroke: var(--academy); stroke-opacity: 0.7; stroke-dasharray: 6 4; }
 .edge-link { stroke: #7c3aed; stroke-opacity: 0.55; stroke-dasharray: 2 4; stroke-linecap: round; }
+.edge-allied { stroke: var(--family); stroke-opacity: 0.75; stroke-dasharray: 9 5; stroke-width: 1.8; }
 .edge-cross { stroke-opacity: 0.45; }
 .edge.emphasis { stroke-opacity: 1; stroke-width: 3.2; }
 
@@ -291,6 +292,7 @@ select, input {
 .type-alliance { color: #475569; }
 .type-family { color: var(--family); }
 .type-academy { color: var(--academy); }
+.type-allied { color: #1e40af; font-style: italic; }
 .tree-item::before {
   content: "";
   display: inline-block;
@@ -356,6 +358,7 @@ textarea.notes {
 .group-checklist legend { font-weight: 600; font-size: 0.9rem; padding: 0 4px; }
 .group-checklist legend small { font-weight: 400; color: var(--muted); }
 .modal .group-checklist label.checkbox { margin: 0; font-weight: 400; color: var(--text); }
+.modal .group-checklist label.checkbox.disabled { color: var(--muted); }
 .muted { color: var(--muted); font-size: 0.85rem; margin: 0; }
 
 /* Edit modal extras */
