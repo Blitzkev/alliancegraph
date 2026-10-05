@@ -8,6 +8,23 @@ import GroupModal from "./components/GroupModal";
 import ServerModal from "./components/ServerModal";
 
 const EMPTY = { servers: [], families: [], academies: [], alliances: [] };
+
+// The open kingdom tab is remembered per browser and user; storage may be unavailable, which is fine.
+const tabKey = (userId) => `allygraph.kingdom.${userId}`;
+const loadTab = (userId) => {
+  try {
+    return localStorage.getItem(tabKey(userId));
+  } catch {
+    return null;
+  }
+};
+const saveTab = (userId, server) => {
+  try {
+    localStorage.setItem(tabKey(userId), server);
+  } catch {
+    // Not remembering the tab is fine.
+  }
+};
 const COLLECTION = { alliance: "alliances", family: "families", academy: "academies" };
 
 export default function Workspace({ user, onSwitchUser }) {
@@ -18,6 +35,7 @@ export default function Workspace({ user, onSwitchUser }) {
   const [selected, setSelected] = useState(null); // { kind, id } shown in the side panel
   const [deleteKey, setDeleteKey] = useState("");
   const [deleteError, setDeleteError] = useState(null);
+  const [tab, setTab] = useState(() => loadTab(user.id));
 
   // One change can ripple (roots promoted, links removed), so after every change we reload it all.
   const refresh = useCallback(
@@ -41,9 +59,16 @@ export default function Workspace({ user, onSwitchUser }) {
 
   const { families, academies, alliances } = graph;
   const servers = useMemo(() => graph.servers.map((s) => s.number).sort(), [graph.servers]);
+  // The kingdom shown in the graph: the chosen tab if it still exists, else the first kingdom.
+  const activeServer = servers.includes(tab) ? tab : (servers[0] ?? null);
+  const openTab = (server) => {
+    setTab(server);
+    saveTab(user.id, server);
+  };
   const find = (kind, id) => graph[COLLECTION[kind]].find((x) => x.id === id) || null;
-  // Derived, so anything deleted elsewhere closes its panel / editor.
-  const selectedItem = selected && find(selected.kind, selected.id) ? selected : null;
+  // Derived, so anything deleted elsewhere (or on another kingdom) closes its panel / editor.
+  const selectedItem =
+    selected && find(selected.kind, selected.id)?.server === activeServer ? selected : null;
   const editingItem = modal?.id ? find(modal.kind, modal.id) : null;
 
   const afterChange = () => {
@@ -194,16 +219,33 @@ export default function Workspace({ user, onSwitchUser }) {
       {loadError && <p className="error banner">{loadError}</p>}
 
       <main className="workspace">
-        <div className="graph-panel">
-          <AllianceGraph
-            servers={servers}
-            families={families}
-            academies={academies}
-            alliances={alliances}
-            selected={selectedItem}
-            onSelect={setSelected}
-            onReorder={handleReorder}
-          />
+        <div className="graph-column">
+          {servers.length > 0 && (
+            <nav className="tabs" role="tablist" aria-label="Kingdoms">
+              {servers.map((server) => (
+                <button
+                  key={server}
+                  role="tab"
+                  aria-selected={server === activeServer}
+                  className={`tab${server === activeServer ? " active" : ""}`}
+                  onClick={() => openTab(server)}
+                >
+                  Kingdom {server}
+                </button>
+              ))}
+            </nav>
+          )}
+          <div className="graph-panel">
+            <AllianceGraph
+              server={activeServer}
+              families={families}
+              academies={academies}
+              alliances={alliances}
+              selected={selectedItem}
+              onSelect={setSelected}
+              onReorder={handleReorder}
+            />
+          </div>
         </div>
         {selectedItem && (
           <DetailPanel
@@ -219,7 +261,14 @@ export default function Workspace({ user, onSwitchUser }) {
       </main>
 
       {modal?.kind === "server" && (
-        <ServerModal userId={user.id} onSaved={afterChange} onClose={() => setModal(null)} />
+        <ServerModal
+          userId={user.id}
+          onSaved={(server) => {
+            openTab(server.number);
+            return afterChange();
+          }}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal?.kind === "alliance" && (!modal.id || editingItem) && (
         <AllianceModal
@@ -227,6 +276,7 @@ export default function Workspace({ user, onSwitchUser }) {
           userId={user.id}
           alliance={editingItem}
           servers={servers}
+          defaultServer={activeServer}
           families={families}
           academies={academies}
           onSaved={afterChange}
@@ -241,6 +291,7 @@ export default function Workspace({ user, onSwitchUser }) {
           kind={modal.kind}
           group={editingItem}
           servers={servers}
+          defaultServer={activeServer}
           families={families}
           alliances={alliances}
           onSaved={afterChange}

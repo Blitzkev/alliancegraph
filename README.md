@@ -14,9 +14,10 @@ Three kinds of things live on each server:
   "loner" that is roughly aligned with a family. Shown as a dashed line; it doesn't make the alliance a
   member (or a root candidate) of that family.
 
-The graph draws each server as a stack of rows: one per family (oldest first, so a new family lands
+Each server/kingdom has its own tab above the graph (creating one opens its tab); the graph shows one
+kingdom at a time as a stack of rows: one per family (oldest first, so a new family lands
 at the bottom), then one per academy, then alliances in no group. Each row is the family/academy on the
-left with its alliances to the right. Every alliance appears once, in its first family's row; its
+left with its alliances (tag and power; details in the side panel) to the right. Every alliance appears once, in its first family's row; its
 other families and academies reach it with a curved line (amber marks a family's root), and dotted
 arcs down the left show which families protect which academies. Drag alliances sideways to reorder
 them within their row, and click anything to see its details (members, notes, memberships) in a side

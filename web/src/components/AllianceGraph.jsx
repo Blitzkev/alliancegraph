@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import { byPower, formatAlliance, formatPower, formatServer, GROUP, membersOf } from "../format";
 
-// Each server is a stack of bands, one per family (oldest first), then one per academy, then one
+// The selected kingdom (server) is drawn as a stack of bands, one per family (oldest first), then one per academy, then one
 // for alliances in no group. A band is its hub on the left with alliances in a row to its right.
 // Every alliance is drawn once, in the band of its first family (else first academy); its other
 // groups reach it with a curved line.
@@ -23,10 +23,6 @@ const DROP = 44; // from a band's bus line down to its alliances' centres
 const BAND_GAP = 30; // vertical space between bands
 const ARC_STEP = 14; // spacing between "protects" arcs in the left margin
 
-const SERVER_PAD = 28;
-const SERVER_GAP = 60;
-const SERVER_LABEL_SPACE = 28;
-const EMPTY_SERVER = { width: 220, height: 90 };
 
 const LABEL_MAX = 28;
 const truncate = (s) => (Array.from(s).length > LABEL_MAX ? Array.from(s).slice(0, LABEL_MAX - 1).join("") + "…" : s);
@@ -42,10 +38,11 @@ const bandOrder = (rootIds) => (a, b) => {
   return byPower(a, b);
 };
 
-export default function AllianceGraph({ servers, families, academies, alliances, selected, onSelect, onReorder }) {
+export default function AllianceGraph({ server, families, academies, alliances, selected, onSelect, onReorder }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
   const zoomTransform = useRef(null); // null until the user zooms/pans; until then we auto-fit
+  const shownServer = useRef(server);
   const fitRef = useRef(null);
   const highlightRef = useRef(null);
   // Refs so the drawing effect always calls the latest callbacks without redrawing for them.
@@ -94,7 +91,7 @@ export default function AllianceGraph({ servers, families, academies, alliances,
           .append("text")
           .attr("class", line.cls)
           .attr("text-anchor", "middle")
-          .attr("y", lines.length === 1 ? 0 : i === 0 ? -6 : 10)
+          .attr("y", lines.length === 1 ? 0 : i === 0 ? -7 : 11)
           .attr("dy", "0.35em")
           .text(line.text),
       );
@@ -110,14 +107,14 @@ export default function AllianceGraph({ servers, families, academies, alliances,
       return Object.assign(g, { width });
     };
 
-    let cursorX = 0;
-    let cursorY = SERVER_LABEL_SPACE;
-    let rowHeight = 0;
+    // Switching kingdom starts from a fresh fit rather than the previous kingdom's zoom.
+    if (shownServer.current !== server) {
+      shownServer.current = server;
+      zoomTransform.current = null;
+    }
 
-    for (const server of servers) {
-      const sg = viewport.append("g").attr("class", "server");
-      const serverBox = sg.append("rect").attr("class", "server-region").attr("rx", 18);
-      const content = sg.append("g");
+    if (server) {
+      const content = viewport.append("g");
       const edgeLayer = content.append("g");
       const nodeLayer = content.append("g");
 
@@ -187,7 +184,7 @@ export default function AllianceGraph({ servers, families, academies, alliances,
             height: ALLIANCE_H,
             cls: `alliance${rootIds.has(a.id) ? " root" : ""}`,
             lines: [
-              { text: formatAlliance({ ...a, name: truncate(a.name) }), cls: "box-title" },
+              { text: a.tag, cls: "box-title" },
               { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
             ],
           });
@@ -299,39 +296,6 @@ export default function AllianceGraph({ servers, families, academies, alliances,
         });
       }
 
-      let w, h;
-      if (bands.length) {
-        const b = content.node().getBBox();
-        w = b.width + 2 * SERVER_PAD;
-        h = b.height + 2 * SERVER_PAD;
-        content.attr("transform", `translate(${SERVER_PAD - b.x},${SERVER_PAD - b.y})`);
-      } else {
-        ({ width: w, height: h } = EMPTY_SERVER);
-        content
-          .append("text")
-          .attr("class", "server-empty")
-          .attr("x", w / 2)
-          .attr("y", h / 2)
-          .attr("dy", "0.35em")
-          .attr("text-anchor", "middle")
-          .text("No alliances yet");
-      }
-      serverBox.attr("width", w).attr("height", h);
-      sg.append("text")
-        .attr("class", "server-label")
-        .attr("x", w / 2)
-        .attr("y", -10)
-        .attr("text-anchor", "middle")
-        .text(formatServer(server));
-
-      if (cursorX > 0 && cursorX + w > width - 40) {
-        cursorX = 0;
-        cursorY += rowHeight + SERVER_GAP;
-        rowHeight = 0;
-      }
-      sg.attr("transform", `translate(${cursorX},${cursorY})`);
-      cursorX += w + SERVER_GAP;
-      rowHeight = Math.max(rowHeight, h);
     }
 
     // The selected node gets a bold outline and its connections are emphasised; nothing fades.
@@ -365,20 +329,25 @@ export default function AllianceGraph({ servers, families, academies, alliances,
     fitRef.current = fit;
     if (zoomTransform.current) svg.call(zoom.transform, zoomTransform.current);
     else fit();
-  }, [servers, families, academies, alliances, size]);
+  }, [server, families, academies, alliances, size]);
 
   useEffect(() => {
     highlightRef.current?.(selected);
   }, [selected]);
 
+  const isEmpty = ![families, academies, alliances].some((items) => items.some((x) => x.server === server));
+
   return (
     <div className="graph" ref={wrapRef}>
       <svg ref={svgRef} />
-      {servers.length === 0 && (
-        <p className="graph-empty">No servers yet. Create a Server/Kingdom to get started.</p>
+      {!server && <p className="graph-empty">No kingdoms yet. Create a Server/Kingdom to get started.</p>}
+      {server && isEmpty && (
+        <p className="graph-empty">
+          Nothing in {formatServer(server)} yet. Create an alliance, family or academy.
+        </p>
       )}
       <Legend />
-      {servers.length > 0 && (
+      {server && !isEmpty && (
         <button className="btn btn-secondary fit-btn" onClick={() => fitRef.current?.()}>
           Fit
         </button>
@@ -454,12 +423,6 @@ function LegendBody() {
       <div className="legend-row">{line("edge-allied")} Allied with family</div>
       <div className="legend-row">{line("edge-academy")} Academy member</div>
       <div className="legend-row">{line("edge-link")} Family protects academy</div>
-      <div className="legend-row">
-        <svg width="26" height="16">
-          <rect className="server-region" x="1" y="2" width="24" height="12" rx="4" />
-        </svg>
-        Server/Kingdom
-      </div>
       <div className="legend-hint">
         Scroll to zoom · drag background to pan · drag alliances sideways to reorder within their row ·
         click anything for details

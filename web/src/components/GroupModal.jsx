@@ -8,6 +8,7 @@ export default function GroupModal({
   kind,
   group,
   servers,
+  defaultServer,
   families,
   alliances,
   onSaved,
@@ -16,7 +17,7 @@ export default function GroupModal({
 }) {
   const { label, collection } = GROUP[kind];
   const editing = Boolean(group);
-  const [server, setServer] = useState(group?.server ?? (servers.length === 1 ? servers[0] : ""));
+  const [server, setServer] = useState(group?.server ?? defaultServer ?? "");
   const [name, setName] = useState(group?.name ?? "");
   const [rootId, setRootId] = useState(group?.rootId ?? "");
   const [familyIds, setFamilyIds] = useState(group?.familyIds ?? []);

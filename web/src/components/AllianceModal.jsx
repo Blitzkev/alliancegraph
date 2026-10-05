@@ -51,6 +51,7 @@ export default function AllianceModal({
   userId,
   alliance,
   servers,
+  defaultServer,
   families,
   academies,
   onSaved,
@@ -58,7 +59,7 @@ export default function AllianceModal({
   onClose,
 }) {
   const editing = Boolean(alliance);
-  const [server, setServer] = useState(alliance?.server ?? (servers.length === 1 ? servers[0] : ""));
+  const [server, setServer] = useState(alliance?.server ?? defaultServer ?? "");
   const [fields, setFields] = useState({
     name: alliance?.name ?? "",
     tag: alliance?.tag ?? "",
