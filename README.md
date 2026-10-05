@@ -18,9 +18,9 @@ family, make them independent, or delete them.
 
 Each server/kingdom has its own tab above the graph (creating one opens its tab); the graph shows one
 kingdom at a time. Each family is a light blue bubble around its alliances (tag and power; the leader
-in amber), with a light green bubble of its academies just below it, joined by a dotted line.
+in amber) and, inside it, a light green bubble of its academies.
 Independent alliances sit in a row at the bottom, and dashed lines show which families an alliance is
-allied with. Drag a bubble or an independent alliance to move it anywhere (positions are saved;
+allied with. Drag a family's bubble or an independent alliance to move it anywhere (positions are saved;
 "Reset layout" puts the kingdom back to the automatic arrangement), drag an alliance inside a bubble to
 reorder it, and click a bubble or an alliance to see details (members, academies, allies, notes) in a
 side panel. Tags are shown as `[#TAG]`.
