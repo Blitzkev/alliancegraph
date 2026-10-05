@@ -58,11 +58,12 @@ All commands are run from the repository root.
 2. Install the server and frontend dependencies:
 
    ```sh
-   pip install -r server/requirements.txt
-   cd web
-   npm install
-   cd ..
+   make install                      # pip install (into .venv) + npm ci
    ```
+
+   Without `make`: `pip install -r server/requirements-dev.txt`, then `cd web && npm ci`.
+
+   Re-run `make install` after pulling changes that add dependencies (it's safe to run any time).
 
 ## Run
 

@@ -1,7 +1,8 @@
 # `make run` builds the frontend and starts the server in the background (it keeps running after
-# you log out); `make stop` stops it. Dependencies are installed separately (see README "Setup").
+# you log out); `make stop` stops it. `make install` installs/updates dependencies.
 
 PYTHON ?= .venv/bin/python
+GUNICORN := .venv/bin/gunicorn
 DATA_DIR ?= $(or $(ALLYGRAPH_DATA_DIR),data)
 HOST ?= 127.0.0.1
 PORT ?= 5050
@@ -15,17 +16,23 @@ CHECK_URL = http://$(if $(filter 0.0.0.0,$(HOST)),127.0.0.1,$(HOST)):$(PORT)/api
 IS_HEALTHY = $(PYTHON) -c "import sys, urllib.request as u; \
   sys.exit(b'allygraph' not in u.urlopen('$(CHECK_URL)', timeout=1).read())" 2>/dev/null
 
-.PHONY: build run run-fg stop restart status logs test reset-data migrate
+.PHONY: install build run run-fg stop restart status logs test reset-data migrate
+
+# Installs/updates Python and npm dependencies to match the repo. Run after pulling changes that
+# touch server/requirements*.txt or web/package-lock.json (it's safe to run any time).
+install: $(PYTHON)
+	$(PYTHON) -m pip install -q -r server/requirements-dev.txt
+	cd web && npm ci
 
 build:
 	cd web && npm run build
 
 # One worker on purpose: the app's file lock is per process, so more workers could clobber writes.
-run: build $(PYTHON)
+run: $(GUNICORN) build
 	@if $(IS_RUNNING); then \
 	  echo "Already running (pid $$(cat "$(PID_FILE)")). Use 'make restart' to pick up changes."; exit 1; fi
 	@mkdir -p "$(LOG_DIR)" "$(dir $(PID_FILE))"
-	@.venv/bin/gunicorn --daemon --chdir server --workers 1 --threads 8 --no-control-socket \
+	@$(GUNICORN) --daemon --chdir server --workers 1 --threads 8 --no-control-socket \
 	  --bind "$(HOST):$(PORT)" --pid "$(PID_FILE)" \
 	  --error-logfile "$(LOG_DIR)/server.log" --access-logfile "$(LOG_DIR)/access.log" \
 	  "app:create_app()"
@@ -85,4 +92,8 @@ migrate: $(PYTHON)
 
 $(PYTHON):
 	@echo "No virtualenv at .venv. Create it first (see README \"Setup\")." >&2
+	@exit 1
+
+$(GUNICORN):
+	@echo "gunicorn isn't installed in .venv. Run 'make install' to install the dependencies." >&2
 	@exit 1
