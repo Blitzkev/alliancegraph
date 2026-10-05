@@ -67,12 +67,25 @@ All commands are run from the repository root.
 ## Run
 
 ```sh
-make run                             # builds the frontend, starts http://localhost:5050
+make run                             # build the frontend and start the server in the background
+make status                          # is it running?
+make logs                            # follow logs/server.log and logs/access.log (Ctrl+C to stop watching)
+make restart                         # rebuild and restart, e.g. after `git pull`
+make stop
 ```
 
-This uses `.venv/bin/python` directly, so the venv doesn't need to be activated. Without `make`
-(e.g. on Windows), activate the venv and run `cd web && npm run build && cd ..` then
-`python server/app.py`. Data persists in `data/users/`.
+`make run` starts the server with [gunicorn](https://gunicorn.org/) in the background, so it keeps
+running after you log out; it waits until the app answers and reports failure (with the log) otherwise.
+Logs go to `logs/`, the process id to `run/server.pid`. It runs a single worker process on purpose:
+the app's file lock is per process. Set `HOST`/`PORT` as usual, e.g. `HOST=0.0.0.0 PORT=12032 make run`.
+
+`make run-fg` runs Flask's development server in the foreground instead (Ctrl+C to stop). These use
+`.venv/bin/...` directly, so the venv doesn't need to be activated. Without `make` (e.g. on Windows),
+activate the venv and run `cd web && npm run build && cd ..` then `python server/app.py`.
+Data persists in `data/users/`.
+
+The server doesn't come back by itself after a reboot; run `make run` again (or set up a systemd
+service).
 
 Data written by older versions (e.g. before families replaced root alliances) is upgraded
 automatically the first time it's loaded. To upgrade everything up front, with a backup, run:

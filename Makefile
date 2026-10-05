@@ -1,16 +1,64 @@
-# Run `make run` to build the frontend and start the server.
-# Dependencies are installed separately (see README "Setup").
+# `make run` builds the frontend and starts the server in the background (it keeps running after
+# you log out); `make stop` stops it. Dependencies are installed separately (see README "Setup").
 
 PYTHON ?= .venv/bin/python
 DATA_DIR ?= $(or $(ALLYGRAPH_DATA_DIR),data)
+HOST ?= 127.0.0.1
+PORT ?= 5050
+LOG_DIR := $(CURDIR)/logs
+PID_FILE := $(CURDIR)/run/server.pid
 
-.PHONY: build run test reset-data migrate
+# True (exit 0) when the server recorded in the pid file is alive.
+IS_RUNNING = [ -f "$(PID_FILE)" ] && kill -0 "$$(cat "$(PID_FILE)")" 2>/dev/null
+# True when this app answers its health check (0.0.0.0 means "all interfaces", so ask localhost).
+CHECK_URL = http://$(if $(filter 0.0.0.0,$(HOST)),127.0.0.1,$(HOST)):$(PORT)/api/health
+IS_HEALTHY = $(PYTHON) -c "import sys, urllib.request as u; \
+  sys.exit(b'allygraph' not in u.urlopen('$(CHECK_URL)', timeout=1).read())" 2>/dev/null
+
+.PHONY: build run run-fg stop restart status logs test reset-data migrate
 
 build:
 	cd web && npm run build
 
+# One worker on purpose: the app's file lock is per process, so more workers could clobber writes.
 run: build $(PYTHON)
-	$(PYTHON) server/app.py
+	@if $(IS_RUNNING); then \
+	  echo "Already running (pid $$(cat "$(PID_FILE)")). Use 'make restart' to pick up changes."; exit 1; fi
+	@mkdir -p "$(LOG_DIR)" "$(dir $(PID_FILE))"
+	@.venv/bin/gunicorn --daemon --chdir server --workers 1 --threads 8 --no-control-socket \
+	  --bind "$(HOST):$(PORT)" --pid "$(PID_FILE)" \
+	  --error-logfile "$(LOG_DIR)/server.log" --access-logfile "$(LOG_DIR)/access.log" \
+	  "app:create_app()"
+	@# Wait until it answers; give up if the process exits (e.g. the port is taken) or 15s pass.
+	@for i in $$(seq 30); do $(IS_HEALTHY) && break; sleep 0.5; $(IS_RUNNING) || [ $$i -lt 4 ] || break; done; \
+	if $(IS_HEALTHY); then \
+	  echo "Running at http://$(HOST):$(PORT) (pid $$(cat "$(PID_FILE)"))."; \
+	  echo "Logs: logs/server.log, logs/access.log. Stop with 'make stop'."; \
+	else \
+	  echo "Server failed to start. Last lines of logs/server.log:" >&2; \
+	  tail -n 20 "$(LOG_DIR)/server.log" >&2; \
+	  if $(IS_RUNNING); then kill "$$(cat "$(PID_FILE)")"; fi; rm -f "$(PID_FILE)"; exit 1; \
+	fi
+
+# Foreground development server (Ctrl+C to stop).
+run-fg: build $(PYTHON)
+	HOST=$(HOST) PORT=$(PORT) $(PYTHON) server/app.py
+
+stop:
+	@if $(IS_RUNNING); then \
+	  pid=$$(cat "$(PID_FILE)"); kill "$$pid"; \
+	  for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$$pid" 2>/dev/null || break; sleep 0.5; done; \
+	  echo "Stopped (pid $$pid)."; \
+	else echo "Not running."; fi
+	@rm -f "$(PID_FILE)"
+
+restart: stop run
+
+status:
+	@if $(IS_RUNNING); then echo "Running (pid $$(cat "$(PID_FILE)"))."; else echo "Not running."; fi
+
+logs:
+	@tail -n 50 -f "$(LOG_DIR)/server.log" "$(LOG_DIR)/access.log"
 
 test: $(PYTHON)
 	cd server && ../$(PYTHON) -m pytest

@@ -298,6 +298,11 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
             return jsonify({"errors": {"_": "Not found."}}), 404
         return "Not found", 404
 
+    @app.get("/api/health")
+    def health():
+        # Lets `make run` confirm that this app (not something else on the port) is serving.
+        return jsonify({"app": "allygraph", "ok": True})
+
     @app.get("/api/users")
     def list_users():
         with store.lock:

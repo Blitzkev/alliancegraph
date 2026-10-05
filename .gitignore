@@ -8,3 +8,5 @@ data/*.imported
 data/users/
 .DS_Store
 data/*.bak
+logs/
+run/

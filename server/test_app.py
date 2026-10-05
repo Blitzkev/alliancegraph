@@ -72,6 +72,10 @@ def family_of(client, **overrides):
     return res.get_json()
 
 
+def test_health(app_client):
+    assert app_client.get("/api/health").get_json() == {"app": "allygraph", "ok": True}
+
+
 # --- users ---
 
 
