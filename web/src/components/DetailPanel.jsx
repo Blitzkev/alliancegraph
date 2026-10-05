@@ -110,6 +110,31 @@ function FamilyDetails({ family, alliances, onEditAlliance }) {
   );
 }
 
+function AllianceLinks({ label, ids, alliances, onSelect }) {
+  const items = ids.map((id) => alliances.find((a) => a.id === id)).filter(Boolean).sort(byPower);
+  return (
+    <li>
+      <span className="tree-group type-allied">
+        {label} ({items.length})
+      </span>
+      <ul>
+        {items.length ? (
+          items.map((a) => (
+            <li key={a.id}>
+              <button className="tree-item type-alliance" onClick={() => onSelect({ kind: "alliance", id: a.id })}>
+                {formatAlliance(a)}
+                <span className="tree-power">{formatPower(a.power)}</span>
+              </button>
+            </li>
+          ))
+        ) : (
+          <li className="tree-empty">None</li>
+        )}
+      </ul>
+    </li>
+  );
+}
+
 function AllianceDetails({ alliance, families, alliances, onSelect }) {
   const familyOrder = sortFamilies(families).map((f) => f.id);
   const allied = familyOrder.filter((id) => alliance.alliedFamilyIds.includes(id));
@@ -136,6 +161,12 @@ function AllianceDetails({ alliance, families, alliances, onSelect }) {
       <Notes text={alliance.notes} />
       <ul className="tree">
         <FamilyLinks label="Allied with families" kind="allied" familyIds={allied} alliances={alliances} onSelect={onSelect} />
+        <AllianceLinks
+          label="Allied with alliances"
+          ids={alliance.alliedAllianceIds}
+          alliances={alliances}
+          onSelect={onSelect}
+        />
       </ul>
     </>
   );

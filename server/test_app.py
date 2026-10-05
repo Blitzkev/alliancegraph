@@ -401,6 +401,70 @@ def test_allied_link_removed_when_family_dissolves(client):
     assert client.alliance(ally["id"])["alliedFamilyIds"] == []
 
 
+def test_allied_with_alliances_is_mutual(client):
+    a, b, c = alliance(client), alliance(client), alliance(client)
+    res = client.patch(f"/alliances/{a['id']}", json={"alliedAllianceIds": [b["id"], c["id"]]})
+    assert res.get_json()["alliedAllianceIds"] == [b["id"], c["id"]]
+    assert client.alliance(b["id"])["alliedAllianceIds"] == [a["id"]]
+    # Removing it from the other side removes it from both.
+    client.patch(f"/alliances/{b['id']}", json={"alliedAllianceIds": []})
+    assert client.alliance(a["id"])["alliedAllianceIds"] == [c["id"]]
+
+
+def test_any_alliance_can_have_allied_alliances(client):
+    lead, mate = pair(client)
+    academy = alliance(client, role="academy", academyOf=lead["familyId"])
+    loner = alliance(client)
+    for who in (lead, academy):
+        res = client.patch(f"/alliances/{who['id']}", json={"alliedAllianceIds": [loner["id"]]})
+        assert res.get_json()["alliedAllianceIds"] == [loner["id"]]
+    assert set(client.alliance(loner["id"])["alliedAllianceIds"]) == {lead["id"], academy["id"]}
+
+
+def test_allied_alliances_must_be_others_on_same_server(client):
+    a = alliance(client)
+    elsewhere = alliance(client, server="4181")
+    for ids in (["nope"], [elsewhere["id"]], "x"):
+        assert "alliedAllianceIds" in make(client, alliedAllianceIds=ids).get_json()["errors"], ids
+    assert "alliedAllianceIds" in client.patch(f"/alliances/{a['id']}", json={"alliedAllianceIds": [a["id"]]}).get_json()["errors"]
+
+
+def test_no_alliance_links_within_a_family(client):
+    lead, mate = pair(client)
+    academy = alliance(client, role="academy", academyOf=lead["familyId"])
+    res = client.patch(f"/alliances/{lead['id']}", json={"alliedAllianceIds": [mate["id"], academy["id"]]})
+    assert res.get_json()["alliedAllianceIds"] == []
+
+
+def test_alliance_link_stays_when_other_joins_a_family(client):
+    a, b = alliance(client), alliance(client)
+    client.patch(f"/alliances/{a['id']}", json={"alliedAllianceIds": [b["id"]]})
+    other = founder(client)
+    client.patch(f"/alliances/{b['id']}", json={"role": "family", "familyWith": [other["id"]]})
+    assert client.alliance(a["id"])["alliedAllianceIds"] == [b["id"]]
+    assert client.alliance(a["id"])["alliedFamilyIds"] == []
+
+
+def test_alliance_link_dropped_when_they_become_family_mates(client):
+    a, b = alliance(client), alliance(client)
+    client.patch(f"/alliances/{a['id']}", json={"alliedAllianceIds": [b["id"]]})
+    client.patch(f"/alliances/{a['id']}", json={"role": "family", "familyWith": [b["id"]]})
+    assert client.alliance(a["id"])["alliedAllianceIds"] == client.alliance(b["id"])["alliedAllianceIds"] == []
+
+
+def test_alliance_link_removed_when_ally_deleted(client):
+    a, b = alliance(client), alliance(client)
+    client.patch(f"/alliances/{a['id']}", json={"alliedAllianceIds": [b["id"]]})
+    client.delete(f"/alliances/{b['id']}")
+    assert client.alliance(a["id"])["alliedAllianceIds"] == []
+
+
+def test_create_with_allied_alliance_links_both(client):
+    b = alliance(client)
+    a = alliance(client, alliedAllianceIds=[b["id"]])
+    assert client.alliance(b["id"])["alliedAllianceIds"] == [a["id"]]
+
+
 # --- deleting ---
 
 
@@ -603,6 +667,7 @@ def check_migrated(user):
     by_id = {a["id"]: a for a in graph["alliances"]}
     for a in graph["alliances"]:
         assert not {"type", "isRoot", "rootId", "familyIds", "academyIds"} & set(a), a
+        assert a["alliedAllianceIds"] == []
     assert by_id["r1"]["familyId"] == by_id["f1"]["familyId"] is not None
     assert by_id["a1"]["familyId"] is None
     assert by_id["a1"]["academyOf"] == by_id["r1"]["familyId"]

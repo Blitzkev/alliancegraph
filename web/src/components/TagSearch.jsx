@@ -5,23 +5,28 @@ const MAX_RESULTS = 8;
 
 // Type-ahead search over alliances by tag (tags are unique within a kingdom). Picking a result calls
 // onPick(alliance) and clears the box. `describe(alliance)` adds a short note to each result.
-export default function TagSearch({ alliances, onPick, describe, placeholder, id }) {
+// Instead of `alliances`, `options` can offer several choices per alliance:
+// [{ key, alliance, note, value }], where onPick receives `value`.
+export default function TagSearch({ alliances, options, onPick, describe, placeholder, id }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
+  const items =
+    options ?? alliances.map((a) => ({ key: a.id, alliance: a, note: describe?.(a), value: a }));
   const q = query.trim().toUpperCase();
+  const at = (item) => item.alliance.tag.toUpperCase().indexOf(q);
   // Tags starting with the query come first, then tags containing it.
   const results = q
-    ? alliances
-        .filter((a) => a.tag.toUpperCase().includes(q))
-        .sort((a, b) => a.tag.toUpperCase().indexOf(q) - b.tag.toUpperCase().indexOf(q) || a.tag.localeCompare(b.tag))
+    ? items
+        .filter((item) => at(item) >= 0)
+        .sort((a, b) => at(a) - at(b) || a.alliance.tag.localeCompare(b.alliance.tag))
         .slice(0, MAX_RESULTS)
     : [];
   const showList = open && q.length > 0;
 
-  const pick = (alliance) => {
-    onPick(alliance);
+  const pick = (item) => {
+    onPick(item.value);
     setQuery("");
     setActive(0);
   };
@@ -65,22 +70,22 @@ export default function TagSearch({ alliances, onPick, describe, placeholder, id
       {showList && (
         <ul className="tag-search-results" role="listbox">
           {results.length ? (
-            results.map((a, i) => (
+            results.map((item, i) => (
               <li
-                key={a.id}
+                key={item.key}
                 role="option"
                 aria-selected={i === active}
                 className={i === active ? "active" : ""}
                 // mousedown, not click, so the input doesn't blur (and close the list) first
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  pick(a);
+                  pick(item);
                 }}
                 onMouseEnter={() => setActive(i)}
               >
-                <strong className="alliance-label-tag">{formatTag(a.tag)}</strong>{" "}
-                <span className="alliance-label-name">{a.name}</span>
-                {describe && <small className="muted"> {describe(a)}</small>}
+                <strong className="alliance-label-tag">{formatTag(item.alliance.tag)}</strong>{" "}
+                <span className="alliance-label-name">{item.alliance.name}</span>
+                {item.note && <small className="muted"> {item.note}</small>}
               </li>
             ))
           ) : (

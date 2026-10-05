@@ -171,6 +171,7 @@ select, input {
 
 .edge { fill: none; stroke-width: 1.6; }
 .edge-allied { stroke: var(--family); stroke-opacity: 0.75; stroke-dasharray: 9 5; stroke-width: 1.8; }
+.edge-allied-alliance { stroke: #7c3aed; stroke-opacity: 0.7; stroke-dasharray: 4 4; stroke-width: 1.8; }
 .edge.emphasis { stroke-opacity: 1; stroke-width: 3.2; }
 
 /* Side panel for the selected family, academy or alliance */
@@ -404,6 +405,7 @@ textarea.notes {
   border-radius: 8px;
 }
 .chip-body { flex: 1; min-width: 0; }
+.chip-kind { display: block; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .chip-remove {
   border: none;
   background: none;

@@ -5,11 +5,14 @@ Data model (one file per user, "version": DATA_VERSION):
   families   [{id, server, createdAt, layout?, academyLayout?}]   an unnamed set of alliances: two or
              more members, or one member and its academy (a lone alliance is just independent).
              layout: where its bubble was dragged ({x, y}).
-  alliances  [{id, name, tag, server, power, notes, familyId, academyOf, alliedFamilyIds, position?,
-              layout?}]   position: order within its bubble; layout: where an independent was dragged
+  alliances  [{id, name, tag, server, power, notes, familyId, academyOf, alliedFamilyIds,
+              alliedAllianceIds, position?, layout?}]   position: order within its bubble; layout: where
+              an independent was dragged
 An alliance is a member of at most one family (familyId), OR the academy of exactly one family
-(academyOf), or neither. A family has at most one academy. It can also be allied with any number of other families. A family is led by
-its strongest member (highest power, ties by name). Families and their alliances share a server.
+(academyOf), or neither. A family has at most one academy. Any alliance can also be allied with other
+families (alliedFamilyIds) and with other alliances (alliedAllianceIds; always mutual), but not with
+its own family or family-mates. A family is led by its strongest member (highest power, ties by name).
+Families and their alliances share a server.
 """
 
 import json
@@ -30,7 +33,7 @@ DEFAULT_DATA_DIR = Path(os.environ.get("ALLYGRAPH_DATA_DIR", ROOT_DIR / "data"))
 DIST_DIR = ROOT_DIR / "web" / "dist"
 
 COLLECTIONS = ("servers", "families", "alliances")
-DATA_VERSION = 4
+DATA_VERSION = 5
 ROLES = ("family", "academy", "none")  # family member, academy of a family, independent
 NAME_MAX = 256
 TAG_MAX = 4
@@ -84,7 +87,9 @@ def _upgrade(data):
         _groups_to_families(data)
     if version in (None, 2):
         _one_academy_per_family(data)  # version 2 -> 3
-    tidy(data)  # version 3 -> 4: dissolve families that are a single alliance with no academy
+    # version 3 -> 4: dissolve families that are a single alliance with no academy;
+    # version 4 -> 5: every alliance gets an (empty) list of allied alliances.
+    tidy(data)
     data["version"] = DATA_VERSION
     return True
 
@@ -316,6 +321,26 @@ def tidy(data):
         own = {a["familyId"], a["academyOf"]}
         a["alliedFamilyIds"] = list(dict.fromkeys(i for i in a.get("alliedFamilyIds", []) if i in family_ids and i not in own))
 
+    # Alliance-to-alliance links are mutual, and pointless between family-mates (or an academy and
+    # its family's members), so those are dropped.
+    by_id = {a["id"]: a for a in data["alliances"]}
+
+    def linkable(a, b):
+        same_family = a["familyId"] and a["familyId"] in (b["familyId"], b["academyOf"])
+        academy_link = a["academyOf"] and a["academyOf"] == b["familyId"]
+        return a is not b and a["server"] == b["server"] and not same_family and not academy_link
+
+    links = {
+        a["id"]: [i for i in dict.fromkeys(a.get("alliedAllianceIds", [])) if i in by_id and linkable(a, by_id[i])]
+        for a in data["alliances"]
+    }
+    for a_id, ids in links.items():
+        for other in ids:
+            if a_id not in links[other]:
+                links[other].append(a_id)
+    for a in data["alliances"]:
+        a["alliedAllianceIds"] = links[a["id"]]
+
 
 def _validate_server(payload, data, existing):
     server = existing["server"] if existing else _clean_server(payload.get("server"))
@@ -422,6 +447,13 @@ def validate_alliance(payload, data, existing=None):
         errors["alliedFamilyIds"] = "Pick families on the same server."
         allied = []
 
+    allied_alliances = _id_list(payload.get("alliedAllianceIds"))
+    if allied_alliances is None or any(
+        i not in by_id or by_id[i]["server"] != server or by_id[i] is existing for i in allied_alliances
+    ):
+        errors["alliedAllianceIds"] = "Pick other alliances on the same server."
+        allied_alliances = []
+
     # Joining merges the picked family with this alliance's own family-of-one (see apply_alliance);
     # two families that each have an academy can't become one.
     if role == "family" and "familyWith" not in errors:
@@ -461,6 +493,7 @@ def validate_alliance(payload, data, existing=None):
         "academyOf": academy_of,
         "academyFor": academy_for,
         "alliedFamilyIds": allied,
+        "alliedAllianceIds": allied_alliances,
     }
     return fields, errors
 
@@ -472,6 +505,15 @@ def apply_alliance(data, alliance, fields):
     before = (alliance.get("familyId"), alliance.get("academyOf"))
     alliance.update(fields)
     by_id = {a["id"]: a for a in data["alliances"]}
+    # Alliance links are mutual: mirror additions and removals on the other side.
+    for other in data["alliances"]:
+        if other is alliance:
+            continue
+        theirs = other.setdefault("alliedAllianceIds", [])
+        if other["id"] in alliance["alliedAllianceIds"] and alliance["id"] not in theirs:
+            theirs.append(alliance["id"])
+        elif other["id"] not in alliance["alliedAllianceIds"] and alliance["id"] in theirs:
+            theirs.remove(alliance["id"])
     created = {f["id"]: f.get("createdAt", "") for f in data["families"]}
 
     if role == "family":

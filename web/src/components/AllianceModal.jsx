@@ -133,7 +133,8 @@ export default function AllianceModal({
   // { kind: "family" | "alliance", id }: the family it's the academy of, or an independent alliance
   // that becomes a family together with this academy.
   const [academyPick, setAcademyPick] = useState(alliance?.academyOf ? { kind: "family", id: alliance.academyOf } : null);
-  const [allied, setAllied] = useState(alliance?.alliedFamilyIds ?? []);
+  const [allied, setAllied] = useState(alliance?.alliedFamilyIds ?? []); // family ids
+  const [alliedAlliances, setAlliedAlliances] = useState(alliance?.alliedAllianceIds ?? []); // mutual
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
 
@@ -144,6 +145,28 @@ export default function AllianceModal({
   const ownFamily =
     role === "family" ? (familyPick?.kind === "family" ? familyPick.id : alliance?.familyId) : role === "academy" && academyPick?.kind === "family" ? academyPick.id : null;
   const alliedShown = allied.filter((id) => id !== ownFamily);
+  // Family-mates (and its family's academy) can't be allies; the server drops such links too.
+  const relatedIds = new Set(
+    others
+      .filter(
+        (a) =>
+          (ownFamily && (a.familyId === ownFamily || a.academyOf === ownFamily)) ||
+          (role === "family" && familyPick?.kind === "alliance" && a.id === familyPick.id),
+      )
+      .map((a) => a.id),
+  );
+  const alliedAlliancesShown = alliedAlliances.filter((id) => !relatedIds.has(id));
+  // Each alliance can be picked itself, or (if it's in a family) its whole family.
+  const allyOptions = others
+    .filter((a) => !relatedIds.has(a.id))
+    .flatMap((a) => [
+      ...(alliedAlliances.includes(a.id)
+        ? []
+        : [{ key: `a:${a.id}`, alliance: a, note: relationshipNote(a, alliances), value: { kind: "alliance", id: a.id } }]),
+      ...(a.familyId && a.familyId !== ownFamily && !allied.includes(a.familyId)
+        ? [{ key: `f:${a.id}`, alliance: a, note: `→ its whole family (${formatFamily(a.familyId, alliances)})`, value: { kind: "family", id: a.familyId } }]
+        : []),
+    ]);
   const academyTaken = (familyId) => alliances.some((a) => a.academyOf === familyId && a.id !== alliance?.id);
 
   useEffect(() => {
@@ -158,6 +181,7 @@ export default function AllianceModal({
     setFamilyPick(null);
     setAcademyPick(null);
     setAllied([]);
+    setAlliedAlliances([]);
   };
 
   const handleSubmit = async (e) => {
@@ -195,6 +219,7 @@ export default function AllianceModal({
       academyOf: role === "academy" && academyPick?.kind === "family" ? academyPick.id : null,
       academyOfAlliance: role === "academy" && academyPick?.kind === "alliance" ? academyPick.id : null,
       alliedFamilyIds: alliedShown,
+      alliedAllianceIds: alliedAlliancesShown,
     };
     setBusy(true);
     try {
@@ -306,10 +331,10 @@ export default function AllianceModal({
                   </fieldset>
                 )}
 
-                {serverFamilies.length > 0 && (
+                {others.length > 0 && (
                   <fieldset className="group-checklist type-family">
                     <legend>
-                      Allied with families <small>({alliedShown.length} selected)</small>
+                      Allied with <small>({alliedShown.length + alliedAlliancesShown.length} selected)</small>
                     </legend>
                     {alliedShown.map((id) => (
                       <Chip
@@ -317,17 +342,32 @@ export default function AllianceModal({
                         onRemove={() => setAllied(allied.filter((x) => x !== id))}
                         label={formatFamily(id, alliances)}
                       >
+                        <small className="chip-kind">Family</small>
                         <FamilyLabel familyId={id} alliances={alliances} self={alliance} />
                       </Chip>
                     ))}
+                    {alliedAlliancesShown.map((id) => (
+                      <Chip
+                        key={id}
+                        onRemove={() => setAlliedAlliances(alliedAlliances.filter((x) => x !== id))}
+                        label="alliance"
+                      >
+                        <small className="chip-kind">Alliance</small>
+                        <AllianceLabel alliance={alliances.find((a) => a.id === id)} />
+                      </Chip>
+                    ))}
                     <TagSearch
-                      // Only family members lead to a family; its own family and ones already added are left out.
-                      alliances={others.filter((a) => a.familyId && a.familyId !== ownFamily && !allied.includes(a.familyId))}
-                      onPick={(a) => setAllied([...allied, a.familyId])}
-                      describe={(a) => relationshipNote(a, alliances)}
-                      placeholder="Search by tag to add a family"
+                      options={allyOptions}
+                      onPick={(pick) =>
+                        pick.kind === "family"
+                          ? setAllied([...allied, pick.id])
+                          : setAlliedAlliances([...alliedAlliances, pick.id])
+                      }
+                      placeholder="Search by tag to add an alliance or its family"
                     />
-                    {errors.alliedFamilyIds && <span className="error">{errors.alliedFamilyIds}</span>}
+                    {(errors.alliedFamilyIds || errors.alliedAllianceIds) && (
+                      <span className="error">{errors.alliedFamilyIds || errors.alliedAllianceIds}</span>
+                    )}
                   </fieldset>
                 )}
               </>

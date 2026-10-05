@@ -12,8 +12,10 @@ Everything is an **alliance** (name, tag, power, notes). Relationships are set i
 - **Academy**: the academy of exactly one family; a family has at most one academy. Picking an
   independent alliance makes the two a family (that alliance plus its academy). An alliance is either
   a family member, an academy, or independent.
-- **Allied**: any alliance can also be allied with any number of other families, e.g. a "loner" roughly
-  aligned with a family. Shown as a dashed line; it doesn't make it a member.
+- **Allied with**: any alliance can also be allied with other alliances (always mutual) and with other
+  families, e.g. a "loner" roughly aligned with a family. Picked with one tag search that offers each
+  alliance and, if it's in a family, its whole family. Shown as dashed lines; it doesn't make it a
+  member. Family-mates (and an academy and its family) can't be allies.
 
 Deleting a family's last member while it still has an academy asks whether to move it to another
 family (one without an academy), make it independent, or delete it.
@@ -155,7 +157,7 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | GET    | `<u>/graph`                  | `{servers, families, alliances}`: everything the page needs         |
 | POST   | `<u>/servers`                | `{number}` (4 digits) → `201` server                                 |
 | DELETE | `<u>/servers/<number>`       | Deletes the server and everything on it                             |
-| POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, role?, familyWith?, academyOf?, alliedFamilyIds?}` → `201` alliance |
+| POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, role?, familyWith?, academyOf?, academyOfAlliance?, alliedFamilyIds?, alliedAllianceIds?}` → `201` alliance |
 | PATCH  | `<u>/alliances/<id>`         | Any of the above except `server`; omitted relationship fields keep their current values |
 | PUT    | `<u>/layout`                 | `{items: [{kind: family\|academy\|alliance, id, x, y}]}`: remember dragged positions (null x/y clears) |
 | PUT    | `<u>/alliances/order`        | `{ids: [...]}` → sets each alliance's display position to its index  |
@@ -165,4 +167,5 @@ Relationship fields: `role` is `family`, `academy` or `none` (default). With `fa
 the alliances to be in a family with (their families merge into the oldest; empty starts a new family).
 With `academy`, `academyOf` is a family id, or `academyOfAlliance` an alliance id (an independent
 alliance becomes a family with its new academy). Families are `{id, server, createdAt}` and exist while they
-have members. Alliances carry `familyId`, `academyOf` and `alliedFamilyIds`.
+have members. Alliances carry `familyId`, `academyOf`, `alliedFamilyIds` and `alliedAllianceIds` (mutual: setting
+it on one alliance updates the other).

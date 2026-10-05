@@ -144,6 +144,9 @@ export default function AllianceGraph({ server, families, alliances, selected, o
           `Power: ${formatPower(a.power)}`,
           relationship,
           ...(a.alliedFamilyIds.length ? [`Allied with: ${familyNames(a.alliedFamilyIds)}`] : []),
+          ...(a.alliedAllianceIds.length
+            ? [`Allied with: ${a.alliedAllianceIds.map((id) => formatAlliance(alliances.find((x) => x.id === id))).join(", ")}`]
+            : []),
         ];
       };
 
@@ -364,6 +367,21 @@ export default function AllianceGraph({ server, families, alliances, selected, o
         }
       }
 
+      // Allied alliances (mutual, drawn once per pair): a gently curved dashed line between the two.
+      for (const a of serverAlliances) {
+        for (const otherId of a.alliedAllianceIds) {
+          if (otherId < a.id || !pos.has(otherId)) continue;
+          addEdge("edge-allied-alliance", [keyOf("alliance", a.id), keyOf("alliance", otherId)], () => {
+            const p = pos.get(a.id);
+            const q = pos.get(otherId);
+            // Bow the line sideways a little so it doesn't run straight through boxes in between.
+            const mx = (p.x + q.x) / 2 - (q.y - p.y) * 0.15;
+            const my = (p.y + q.y) / 2 + (q.x - p.x) * 0.15;
+            return `M${p.x},${p.y} Q${mx},${my} ${q.x},${q.y}`;
+          });
+        }
+      }
+
       const redrawEdges = () => edges.forEach((e) => e.path.attr("d", e.d()));
       redrawEdges();
     }
@@ -505,6 +523,7 @@ function LegendBody() {
       <div className="legend-row">{swatch("#dcfce7", COLORS.academy, 3)} The family's academy</div>
       <div className="legend-row">{swatch("#fff7ed", COLORS.root, 3)} Family leader (strongest)</div>
       <div className="legend-row">{line("edge-allied")} Allied with a family</div>
+      <div className="legend-row">{line("edge-allied-alliance")} Allied alliances</div>
       <div className="legend-hint">
         Scroll to zoom · drag background to pan · drag a family or an independent alliance to move it ·
         drag an alliance inside a bubble to reorder · click a bubble or alliance for details
