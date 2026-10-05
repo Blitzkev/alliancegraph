@@ -1,16 +1,40 @@
+import { useState } from "react";
 import { byPower, familyMembers, formatAlliance, formatPower, formatServer } from "../format";
+
+// Long notes are clipped to a few lines until expanded.
+const NOTES_PREVIEW_LINES = 4;
+const NOTES_PREVIEW_CHARS = 280;
+
+function Notes({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!text || !text.trim()) return null;
+  const long = text.length > NOTES_PREVIEW_CHARS || text.split("\n").length > NOTES_PREVIEW_LINES;
+  return (
+    <div className="tree-notes-wrap">
+      <div className={`tree-notes${long && !expanded ? " clamped" : ""}`}>{text}</div>
+      {long && (
+        <button className="link-btn" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 function Item({ alliance, onEdit }) {
   return (
-    <button
-      className={`tree-item type-${alliance.isRoot ? "root" : alliance.type}`}
-      onClick={() => onEdit(alliance)}
-      title="Click to edit or delete"
-    >
-      {formatAlliance(alliance)}
-      {alliance.isRoot && <span className="root-badge">Root</span>}
-      <span className="tree-power">{formatPower(alliance.power)}</span>
-    </button>
+    <>
+      <button
+        className={`tree-item type-${alliance.isRoot ? "root" : alliance.type}`}
+        onClick={() => onEdit(alliance)}
+        title="Click to edit or delete"
+      >
+        {formatAlliance(alliance)}
+        {alliance.isRoot && <span className="root-badge">Root</span>}
+        <span className="tree-power">{formatPower(alliance.power)}</span>
+      </button>
+      <Notes text={alliance.notes} />
+    </>
   );
 }
 

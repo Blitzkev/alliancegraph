@@ -251,6 +251,33 @@ select, input {
   font-variant-numeric: tabular-nums;
 }
 .panel-actions { margin-top: 12px; }
+.tree-notes-wrap { margin: 0 0 6px 21px; }
+.tree-notes {
+  white-space: pre-wrap; /* notes keep their whitespace and line breaks */
+  word-break: break-word;
+  tab-size: 4;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+.tree-notes.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.link-btn {
+  border: none;
+  background: none;
+  padding: 2px 0 0 10px;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--family);
+  cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }
 .tree-empty { padding: 4px 6px; color: var(--muted); font-size: 0.8rem; font-style: italic; }
 .type-root { color: #b45309; font-weight: 700; }
 .type-family { color: var(--family); }
