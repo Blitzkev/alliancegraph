@@ -66,6 +66,7 @@ const relationshipNote = (a, alliances) =>
 // "In a family with": search by tag and pick one alliance. Picking a family member picks its whole
 // family; picking an independent alliance forms a new family with it.
 function FamilyPicker({ candidates, alliances, self, pick, onPick, error }) {
+  // The only member of a family (which then has an academy) can stay as it is without picking.
   const ownFamilyAlone = self?.familyId && familyMembers(self.familyId, alliances).length === 1;
   return (
     <fieldset className="group-checklist type-family">
@@ -91,8 +92,8 @@ function FamilyPicker({ candidates, alliances, self, pick, onPick, error }) {
           />
           <p className="muted">
             {ownFamilyAlone
-              ? "Nothing picked: it stays a family on its own."
-              : "Nothing picked: this alliance starts a new family on its own."}
+              ? "Nothing picked: it stays a family of itself and its academy."
+              : "Pick an alliance: a family needs two or more alliances (or one plus its academy)."}
           </p>
         </>
       )}
@@ -129,7 +130,9 @@ export default function AllianceModal({
       ? { kind: "family", id: alliance.familyId }
       : null,
   );
-  const [academyOf, setAcademyOf] = useState(alliance?.academyOf ?? "");
+  // { kind: "family" | "alliance", id }: the family it's the academy of, or an independent alliance
+  // that becomes a family together with this academy.
+  const [academyPick, setAcademyPick] = useState(alliance?.academyOf ? { kind: "family", id: alliance.academyOf } : null);
   const [allied, setAllied] = useState(alliance?.alliedFamilyIds ?? []);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -139,7 +142,7 @@ export default function AllianceModal({
   const others = alliances.filter((a) => a.server === server && a.id !== alliance?.id);
   // Families this alliance will belong to / be an academy of can't also be allied.
   const ownFamily =
-    role === "family" ? (familyPick?.kind === "family" ? familyPick.id : alliance?.familyId) : role === "academy" ? academyOf : null;
+    role === "family" ? (familyPick?.kind === "family" ? familyPick.id : alliance?.familyId) : role === "academy" && academyPick?.kind === "family" ? academyPick.id : null;
   const alliedShown = allied.filter((id) => id !== ownFamily);
   const academyTaken = (familyId) => alliances.some((a) => a.academyOf === familyId && a.id !== alliance?.id);
 
@@ -153,7 +156,7 @@ export default function AllianceModal({
   const changeServer = (value) => {
     setServer(value);
     setFamilyPick(null);
-    setAcademyOf("");
+    setAcademyPick(null);
     setAllied([]);
   };
 
@@ -167,7 +170,10 @@ export default function AllianceModal({
     if (t === 0) found.tag = "Tag is required.";
     else if (t > 4) found.tag = "Tag must be 1-4 characters.";
     if (!server) found.server = "Select a server.";
-    if (role === "academy" && !academyOf) found.academyOf = "Pick the family it's an academy of.";
+    if (role === "academy" && !academyPick) found.academyOf = "Pick the alliance or family it's an academy of.";
+    const aloneWithAcademy = alliance?.familyId && familyMembers(alliance.familyId, alliances).length === 1;
+    if (role === "family" && !familyPick && !aloneWithAcademy)
+      found.familyWith = "Pick an alliance to be in a family with: a family needs two or more alliances.";
     const powerProblem = powerError(fields.power);
     if (powerProblem) found.power = powerProblem;
     const notesProblem = notesError(fields.notes);
@@ -186,7 +192,8 @@ export default function AllianceModal({
       server,
       role,
       familyWith,
-      academyOf: role === "academy" ? academyOf : null,
+      academyOf: role === "academy" && academyPick?.kind === "family" ? academyPick.id : null,
+      academyOfAlliance: role === "academy" && academyPick?.kind === "alliance" ? academyPick.id : null,
       alliedFamilyIds: alliedShown,
     };
     setBusy(true);
@@ -276,21 +283,24 @@ export default function AllianceModal({
                 {role === "academy" && (
                   <fieldset className="group-checklist type-academy">
                     <legend>Academy of</legend>
-                    {academyOf ? (
-                      <Chip onRemove={() => setAcademyOf("")} label={formatFamily(academyOf, alliances)}>
-                        <FamilyLabel familyId={academyOf} alliances={alliances} self={alliance} />
+                    {academyPick?.kind === "family" ? (
+                      <Chip onRemove={() => setAcademyPick(null)} label={formatFamily(academyPick.id, alliances)}>
+                        <FamilyLabel familyId={academyPick.id} alliances={alliances} self={alliance} />
                       </Chip>
-                    ) : serverFamilies.length ? (
-                      <TagSearch
-                        // Searching any member's tag picks that member's family; a family can only have
-                        // one academy, so families that already have another are left out.
-                        alliances={others.filter((a) => a.familyId && !academyTaken(a.familyId))}
-                        onPick={(a) => setAcademyOf(a.familyId)}
-                        describe={(a) => relationshipNote(a, alliances)}
-                        placeholder="Search by tag to pick the family"
-                      />
+                    ) : academyPick ? (
+                      <Chip onRemove={() => setAcademyPick(null)} label="alliance">
+                        <AllianceLabel alliance={alliances.find((a) => a.id === academyPick.id)} />
+                        <small className="muted">It and this academy become a family.</small>
+                      </Chip>
                     ) : (
-                      <p className="muted">No families on this server yet.</p>
+                      <TagSearch
+                        // A family member's tag picks its family; an independent's tag makes the two a
+                        // family. A family can only have one academy, so ones that already do are left out.
+                        alliances={others.filter((a) => !a.academyOf && !(a.familyId && academyTaken(a.familyId)))}
+                        onPick={(a) => setAcademyPick(a.familyId ? { kind: "family", id: a.familyId } : { kind: "alliance", id: a.id })}
+                        describe={(a) => relationshipNote(a, alliances)}
+                        placeholder="Search by tag, e.g. G86H"
+                      />
                     )}
                     {errors.academyOf && <span className="error">{errors.academyOf}</span>}
                   </fieldset>

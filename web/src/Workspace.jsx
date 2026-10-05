@@ -147,8 +147,15 @@ export default function Workspace({ user, onSwitchUser }) {
       return;
     }
     let message = `Delete ${formatAlliance(alliance)}?`;
-    if (family && familyLeader(family, alliances)?.id === alliance.id && familyMembers(family, alliances).length > 1)
+    const members = family ? familyMembers(family, alliances) : [];
+    // A family needs two members, or one plus its academy; otherwise it dissolves.
+    if (family && members.length === 2 && !familyAcademies(family, alliances).length) {
+      const other = members.find((a) => a.id !== alliance.id);
+      message += `\n\nIts family will dissolve: ${formatAlliance(other)} becomes independent.`;
+    } else if (family && familyLeader(family, alliances)?.id === alliance.id && members.length > 1)
       message += "\n\nIt leads its family; the next strongest member will lead instead.";
+    if (alliance.academyOf && familyMembers(alliance.academyOf, alliances).length === 1)
+      message += `\n\n${formatAlliance(familyMembers(alliance.academyOf, alliances)[0])} will be independent again.`;
     if (!window.confirm(message)) return;
     try {
       await deleteAlliance(user.id, alliance.id);

@@ -2,8 +2,9 @@
 
 Data model (one file per user, "version": DATA_VERSION):
   servers    [{number}]
-  families   [{id, server, createdAt, layout?, academyLayout?}]   an unnamed set of alliances; exists
-             while it has a member. layout/academyLayout: where its bubbles were dragged ({x, y}).
+  families   [{id, server, createdAt, layout?, academyLayout?}]   an unnamed set of alliances: two or
+             more members, or one member and its academy (a lone alliance is just independent).
+             layout: where its bubble was dragged ({x, y}).
   alliances  [{id, name, tag, server, power, notes, familyId, academyOf, alliedFamilyIds, position?,
               layout?}]   position: order within its bubble; layout: where an independent was dragged
 An alliance is a member of at most one family (familyId), OR the academy of exactly one family
@@ -29,7 +30,7 @@ DEFAULT_DATA_DIR = Path(os.environ.get("ALLYGRAPH_DATA_DIR", ROOT_DIR / "data"))
 DIST_DIR = ROOT_DIR / "web" / "dist"
 
 COLLECTIONS = ("servers", "families", "alliances")
-DATA_VERSION = 3
+DATA_VERSION = 4
 ROLES = ("family", "academy", "none")  # family member, academy of a family, independent
 NAME_MAX = 256
 TAG_MAX = 4
@@ -81,7 +82,9 @@ def _upgrade(data):
         # then become unnamed families (version 2).
         _upgrade_unversioned(data)
         _groups_to_families(data)
-    _one_academy_per_family(data)  # version 2 -> 3
+    if version in (None, 2):
+        _one_academy_per_family(data)  # version 2 -> 3
+    tidy(data)  # version 3 -> 4: dissolve families that are a single alliance with no academy
     data["version"] = DATA_VERSION
     return True
 
@@ -290,10 +293,20 @@ def _academies(data, family_id, exclude=None):
 
 
 def tidy(data):
-    """Restore invariants after any change: families exist only while they have members, and no
-    alliance points at a family that's gone, or is allied with its own family."""
-    used = {a.get("familyId") for a in data["alliances"]}
-    data["families"] = [f for f in data["families"] if f["id"] in used]
+    """Restore invariants after any change: a family needs two or more members, or one member and its
+    academy, otherwise it dissolves (a lone member becomes independent); and no alliance points at a
+    family that's gone, or is allied with its own family."""
+    members = {}
+    for a in data["alliances"]:
+        if a.get("familyId"):
+            members.setdefault(a["familyId"], []).append(a)
+    has_academy = {a.get("academyOf") for a in data["alliances"]}
+    for family in data["families"]:
+        group = members.get(family["id"], [])
+        if len(group) == 1 and family["id"] not in has_academy:
+            group[0]["familyId"] = None
+            members.pop(family["id"])
+    data["families"] = [f for f in data["families"] if f["id"] in members]
     family_ids = {f["id"] for f in data["families"]}
     for a in data["alliances"]:
         if a.get("familyId") not in family_ids:
@@ -367,6 +380,15 @@ def validate_alliance(payload, data, existing=None):
     if family_with is None:
         errors["familyWith"] = "familyWith must be a list of alliance ids."
         family_with = []
+    if role == "family" and not family_with and "familyWith" not in errors:
+        alone_with_academy = (
+            existing
+            and existing.get("familyId")
+            and not _members(data, existing["familyId"], existing)
+            and _academies(data, existing["familyId"])
+        )
+        if not alone_with_academy:
+            errors["familyWith"] = "Pick an alliance to be in a family with: a family needs two or more alliances."
     for alliance_id in family_with:
         other = by_id.get(alliance_id)
         if other is None or other["server"] != server or other is existing:
@@ -375,7 +397,18 @@ def validate_alliance(payload, data, existing=None):
             errors["familyWith"] = f"{other['name']} is an academy, so it can't be in a family."
 
     academy_of = payload.get("academyOf") if role == "academy" else None
-    if role == "academy":
+    academy_for = None  # an independent alliance that becomes a family with this academy
+    if role == "academy" and payload.get("academyOfAlliance"):
+        target = by_id.get(payload["academyOfAlliance"])
+        if target is None or target["server"] != server or target is existing:
+            errors["academyOf"] = "Pick another alliance on the same server."
+        elif target.get("academyOf"):
+            errors["academyOf"] = f"{target['name']} is an academy itself."
+        elif target.get("familyId"):
+            academy_of = target["familyId"]
+        else:
+            academy_for = target["id"]
+    if role == "academy" and academy_for is None and "academyOf" not in errors:
         family = family_by_id.get(academy_of)
         if family is None or family["server"] != server:
             errors["academyOf"] = "Pick the family this alliance is an academy of."
@@ -426,6 +459,7 @@ def validate_alliance(payload, data, existing=None):
         "role": role,
         "familyWith": family_with,
         "academyOf": academy_of,
+        "academyFor": academy_for,
         "alliedFamilyIds": allied,
     }
     return fields, errors
@@ -434,7 +468,7 @@ def validate_alliance(payload, data, existing=None):
 def apply_alliance(data, alliance, fields):
     """Write validated fields onto `alliance` (already in data), joining/merging families as asked."""
     fields = dict(fields)
-    role, family_with = fields.pop("role"), fields.pop("familyWith")
+    role, family_with, academy_for = fields.pop("role"), fields.pop("familyWith"), fields.pop("academyFor")
     before = (alliance.get("familyId"), alliance.get("academyOf"))
     alliance.update(fields)
     by_id = {a["id"]: a for a in data["alliances"]}
@@ -468,7 +502,14 @@ def apply_alliance(data, alliance, fields):
         alliance["academyOf"] = None
     else:
         alliance["familyId"] = None
-        # academyOf already set from fields (None for an independent alliance)
+        if academy_for:
+            # Academy of an independent alliance: the two become a family (it plus its academy).
+            family_id = str(uuid.uuid4())
+            data["families"].append({"id": family_id, "server": alliance["server"], "createdAt": _now()})
+            by_id[academy_for]["familyId"] = family_id
+            by_id[academy_for].pop("layout", None)
+            alliance["academyOf"] = family_id
+        # otherwise academyOf is already set from fields (None for an independent alliance)
 
     if (alliance["familyId"], alliance["academyOf"]) != before:
         # Its old order and dragged spot mean nothing in a different group.

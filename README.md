@@ -4,11 +4,13 @@ A single-page site for tracking alliances and how they relate, drawn as an inter
 
 Everything is an **alliance** (name, tag, power, notes). Relationships are set in the alliance's form:
 
-- **Family member**: families are unnamed sets of alliances that never overlap. Pick the alliances (or a
-  whole existing family) this alliance is in a family with; picking alliances from different families
-  merges them, and picking nothing starts a new family. A family is led by its strongest member
+- **Family member**: families are unnamed sets of alliances that never overlap, with two or more members
+  (or one member plus its academy; a lone alliance is simply independent). Pick, by tag, an alliance this
+  one is in a family with: picking any member of a family joins that family, picking an independent forms
+  a new family with it. A family that drops below two members (and has no academy) dissolves. A family is led by its strongest member
   (highest power, ties by name) and is shown as "<leader> family".
-- **Academy**: the academy of exactly one family; a family has at most one academy. An alliance is either
+- **Academy**: the academy of exactly one family; a family has at most one academy. Picking an
+  independent alliance makes the two a family (that alliance plus its academy). An alliance is either
   a family member, an academy, or independent.
 - **Allied**: any alliance can also be allied with any number of other families, e.g. a "loner" roughly
   aligned with a family. Shown as a dashed line; it doesn't make it a member.
@@ -161,5 +163,6 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 
 Relationship fields: `role` is `family`, `academy` or `none` (default). With `family`, `familyWith` lists
 the alliances to be in a family with (their families merge into the oldest; empty starts a new family).
-With `academy`, `academyOf` is a family id. Families are `{id, server, createdAt}` and exist while they
+With `academy`, `academyOf` is a family id, or `academyOfAlliance` an alliance id (an independent
+alliance becomes a family with its new academy). Families are `{id, server, createdAt}` and exist while they
 have members. Alliances carry `familyId`, `academyOf` and `alliedFamilyIds`.

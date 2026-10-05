@@ -71,9 +71,23 @@ def alliance(client, **overrides):
     return res.get_json()
 
 
+def pair(client, server="4180", **overrides):
+    """A family of two: (the alliance created to join, its mate). Families need two or more members."""
+    mate = alliance(client, server=server)
+    lead = alliance(client, server=server, role="family", familyWith=[mate["id"]], **overrides)
+    return lead, client.alliance(mate["id"])
+
+
 def founder(client, **overrides):
-    """An alliance that starts a new family on its own."""
-    return alliance(client, role="family", familyWith=[], **overrides)
+    """An alliance in a (new) family of two."""
+    return pair(client, **overrides)[0]
+
+
+def solo_with_academy(client, server="4180"):
+    """A family of one alliance plus its academy: (member, academy)."""
+    member = alliance(client, server=server)
+    academy = alliance(client, server=server, role="academy", academyOfAlliance=member["id"])
+    return client.alliance(member["id"]), academy
 
 
 def test_health(app_client):
@@ -121,7 +135,7 @@ def test_persists_across_app_instances(tmp_path):
     first.post("/servers", json={"number": "4180"})
     founder(first)
     graph = UserClient(create_app(tmp_path).test_client(), first.user_id).get("/graph").get_json()
-    assert [len(graph[k]) for k in ("servers", "families", "alliances")] == [1, 1, 1]
+    assert [len(graph[k]) for k in ("servers", "families", "alliances")] == [1, 1, 2]
 
 
 # --- servers ---
@@ -145,7 +159,7 @@ def test_delete_server_cascades(client):
     alliance(client, role="academy", academyOf=lead["familyId"])
     keep = alliance(client, server="4181")
     res = client.delete("/servers/4180")
-    assert len(res.get_json()["deleted"]) == 2
+    assert len(res.get_json()["deleted"]) == 3
     graph = client.get("/graph").get_json()
     assert (graph["alliances"], graph["families"]) == ([keep], [])
 
@@ -159,9 +173,9 @@ def test_independent_by_default(client):
     assert client.families() == []
 
 
-def test_family_with_nobody_starts_a_family_of_one(client):
-    a = founder(client)
-    assert [f["id"] for f in client.families()] == [a["familyId"]]
+def test_family_needs_someone_to_be_in_a_family_with(client):
+    res = make(client, role="family", familyWith=[])
+    assert "familyWith" in res.get_json()["errors"]
 
 
 def test_family_with_independent_alliances_forms_a_family(client):
@@ -172,16 +186,15 @@ def test_family_with_independent_alliances_forms_a_family(client):
 
 
 def test_picking_one_member_joins_the_whole_family(client):
-    lead = founder(client)
-    mate = alliance(client, role="family", familyWith=[lead["id"]])
+    lead, mate = pair(client)
     newcomer = alliance(client, role="family", familyWith=[mate["id"]])
     assert newcomer["familyId"] == lead["familyId"]
     assert len(client.families()) == 1
 
 
 def test_picking_two_families_merges_them_into_the_oldest(client):
-    old = founder(client)
-    young = founder(client)
+    old, _ = pair(client)
+    young, _ = pair(client)
     academy = alliance(client, role="academy", academyOf=young["familyId"])  # only one: merge allowed
     ally = alliance(client, alliedFamilyIds=[old["familyId"], young["familyId"]])
     bridge = alliance(client, role="family", familyWith=[young["id"], old["id"]])
@@ -224,6 +237,27 @@ def test_academy_of_a_family(client):
     assert (academy["familyId"], academy["academyOf"]) == (None, lead["familyId"])
 
 
+def test_academy_of_an_alliance_in_a_family_picks_its_family(client):
+    lead, mate = pair(client)
+    academy = alliance(client, role="academy", academyOfAlliance=mate["id"])
+    assert academy["academyOf"] == lead["familyId"]
+
+
+def test_academy_of_an_independent_forms_a_family_of_one_plus_academy(client):
+    member, academy = solo_with_academy(client)
+    assert member["familyId"] is not None
+    assert academy["academyOf"] == member["familyId"]
+    assert [f["id"] for f in client.families()] == [member["familyId"]]
+
+
+def test_academy_of_alliance_must_be_valid(client):
+    member, academy = solo_with_academy(client)
+    elsewhere = alliance(client, server="4181")
+    for target in ("nope", elsewhere["id"], academy["id"]):
+        res = make(client, role="academy", academyOfAlliance=target)
+        assert "academyOf" in res.get_json()["errors"], target
+
+
 def test_family_has_at_most_one_academy(client):
     lead = founder(client)
     alliance(client, role="academy", academyOf=lead["familyId"])
@@ -238,10 +272,9 @@ def test_keeping_own_academy_role_is_fine_on_edit(client):
 
 
 def test_cannot_merge_two_families_with_academies(client):
-    a, b = founder(client), founder(client)
-    alliance(client, role="academy", academyOf=a["familyId"])
-    alliance(client, role="academy", academyOf=b["familyId"])
-    # a is alone in its family, so picking b's family would merge them.
+    a, _ = solo_with_academy(client)
+    b, _ = solo_with_academy(client)
+    # a is alone in its family, so picking b would merge the two families.
     res = client.patch(f"/alliances/{a['id']}", json={"role": "family", "familyWith": [b["id"]]})
     assert "familyWith" in res.get_json()["errors"]
 
@@ -257,28 +290,35 @@ def test_academy_of_is_ignored_unless_role_is_academy(client):
     assert a["academyOf"] is None
 
 
+def test_family_dissolves_when_its_academy_leaves(client):
+    member, academy = solo_with_academy(client)
+    client.patch(f"/alliances/{academy['id']}", json={"role": "none"})
+    assert client.alliance(member["id"])["familyId"] is None
+    assert client.families() == []
+
+
 # --- editing ---
 
 
 def test_edit_keeps_family_when_relationship_not_sent(client):
-    lead = founder(client)
-    mate = alliance(client, role="family", familyWith=[lead["id"]])
+    lead, mate = pair(client)
     res = client.patch(f"/alliances/{mate['id']}", json={"name": "Renamed"})
     assert (res.get_json()["name"], res.get_json()["familyId"]) == ("Renamed", lead["familyId"])
 
 
-def test_leave_family_to_become_independent(client):
-    lead = founder(client)
-    mate = alliance(client, role="family", familyWith=[lead["id"]])
+def test_leaving_a_family_of_two_dissolves_it(client):
+    lead, mate = pair(client)
     res = client.patch(f"/alliances/{mate['id']}", json={"role": "none"})
     assert res.get_json()["familyId"] is None
-    assert client.alliance(lead["id"])["familyId"] == lead["familyId"]
-
-
-def test_last_member_leaving_removes_family(client):
-    lead = founder(client)
-    client.patch(f"/alliances/{lead['id']}", json={"role": "none"})
+    assert client.alliance(lead["id"])["familyId"] is None  # alone now: independent
     assert client.families() == []
+
+
+def test_leaving_a_bigger_family_keeps_it(client):
+    lead, mate = pair(client)
+    third = alliance(client, role="family", familyWith=[lead["id"]])
+    client.patch(f"/alliances/{third['id']}", json={"role": "none"})
+    assert client.alliance(mate["id"])["familyId"] == lead["familyId"]
 
 
 def test_switch_from_family_to_academy_of_another(client):
@@ -288,39 +328,43 @@ def test_switch_from_family_to_academy_of_another(client):
     assert (res.get_json()["familyId"], res.get_json()["academyOf"]) == (None, b["familyId"])
 
 
+def test_member_can_become_academy_of_its_own_family(client):
+    lead, mate = pair(client)
+    res = client.patch(f"/alliances/{mate['id']}", json={"role": "academy", "academyOf": lead["familyId"]})
+    assert res.get_json()["academyOf"] == lead["familyId"]
+    assert client.alliance(lead["id"])["familyId"] == lead["familyId"]  # one member plus its academy
+
+
 def test_cannot_become_academy_of_own_family_as_last_member(client):
-    lead = founder(client)
-    res = client.patch(f"/alliances/{lead['id']}", json={"role": "academy", "academyOf": lead["familyId"]})
+    member, _ = solo_with_academy(client)
+    res = client.patch(f"/alliances/{member['id']}", json={"role": "academy", "academyOf": member["familyId"]})
     assert "academyOf" in res.get_json()["errors"]
 
 
-def test_last_member_cannot_leave_while_academies_remain(client):
-    lead = founder(client)
-    alliance(client, role="academy", academyOf=lead["familyId"])
+def test_last_member_cannot_leave_while_academy_remains(client):
+    member, _ = solo_with_academy(client)
     other = founder(client)
     for change in ({"role": "none"}, {"role": "academy", "academyOf": other["familyId"]}):
-        assert "role" in client.patch(f"/alliances/{lead['id']}", json=change).get_json()["errors"], change
-    # Picking another family instead merges the two, so the academies keep a family.
-    res = client.patch(f"/alliances/{lead['id']}", json={"role": "family", "familyWith": [other["id"]]})
+        assert "role" in client.patch(f"/alliances/{member['id']}", json=change).get_json()["errors"], change
+    # Picking a family without an academy instead merges the two, so the academy keeps a family.
+    res = client.patch(f"/alliances/{member['id']}", json={"role": "family", "familyWith": [other["id"]]})
     assert res.status_code == 200
-    assert client.alliance(other["id"])["familyId"] == lead["familyId"]
+    assert client.alliance(other["id"])["familyId"] == member["familyId"]
 
 
-def test_family_of_one_stays_put_when_saved_unchanged(client):
-    lead = founder(client)
-    alliance(client, role="academy", academyOf=lead["familyId"])
-    res = client.patch(f"/alliances/{lead['id']}", json={"role": "family", "familyWith": []})
-    assert res.get_json()["familyId"] == lead["familyId"]
+def test_family_of_one_with_academy_stays_put_when_saved_unchanged(client):
+    member, _ = solo_with_academy(client)
+    res = client.patch(f"/alliances/{member['id']}", json={"role": "family", "familyWith": []})
+    assert res.get_json()["familyId"] == member["familyId"]
 
 
 def test_family_of_one_grows_instead_of_being_replaced(client):
-    lead = founder(client)
-    academy = alliance(client, role="academy", academyOf=lead["familyId"])
+    member, academy = solo_with_academy(client)
     loner = alliance(client)
-    res = client.patch(f"/alliances/{lead['id']}", json={"role": "family", "familyWith": [loner["id"]]})
-    assert res.get_json()["familyId"] == lead["familyId"]
-    assert client.alliance(loner["id"])["familyId"] == lead["familyId"]
-    assert client.alliance(academy["id"])["academyOf"] == lead["familyId"]
+    res = client.patch(f"/alliances/{member['id']}", json={"role": "family", "familyWith": [loner["id"]]})
+    assert res.get_json()["familyId"] == member["familyId"]
+    assert client.alliance(loner["id"])["familyId"] == member["familyId"]
+    assert client.alliance(academy["id"])["academyOf"] == member["familyId"]
 
 
 def test_server_and_tag_rules_on_edit(client):
@@ -349,10 +393,11 @@ def test_not_allied_with_own_family(client):
     assert mate["alliedFamilyIds"] == []
 
 
-def test_allied_link_removed_when_family_disappears(client):
-    lead = founder(client)
+def test_allied_link_removed_when_family_dissolves(client):
+    lead, mate = pair(client)
     ally = alliance(client, alliedFamilyIds=[lead["familyId"]])
     client.delete(f"/alliances/{lead['id']}")
+    assert client.alliance(mate["id"])["familyId"] is None
     assert client.alliance(ally["id"])["alliedFamilyIds"] == []
 
 
@@ -364,50 +409,45 @@ def test_delete_alliance(client):
     assert client.delete(f"/alliances/{a['id']}").get_json() == {"deleted": [a["id"]]}
 
 
-def test_delete_member_keeps_family(client):
-    lead = founder(client)
-    mate = alliance(client, role="family", familyWith=[lead["id"]])
+def test_delete_member_keeps_bigger_family(client):
+    lead, mate = pair(client)
+    third = alliance(client, role="family", familyWith=[lead["id"]])
     client.delete(f"/alliances/{lead['id']}")
-    assert client.alliance(mate["id"])["familyId"] == lead["familyId"]
+    assert client.alliance(mate["id"])["familyId"] == client.alliance(third["id"])["familyId"] == lead["familyId"]
 
 
-def test_delete_last_member_with_academies_needs_a_choice(client):
-    lead = founder(client)
-    alliance(client, role="academy", academyOf=lead["familyId"])
-    res = client.delete(f"/alliances/{lead['id']}")
+def test_delete_last_member_with_academy_needs_a_choice(client):
+    member, _ = solo_with_academy(client)
+    res = client.delete(f"/alliances/{member['id']}")
     assert (res.status_code, res.get_json()["academyCount"]) == (409, 1)
 
 
-def test_delete_last_member_and_academies(client):
-    lead = founder(client)
-    academy = alliance(client, role="academy", academyOf=lead["familyId"])
-    res = client.delete(f"/alliances/{lead['id']}?academies=delete")
-    assert set(res.get_json()["deleted"]) == {lead["id"], academy["id"]}
+def test_delete_last_member_and_academy(client):
+    member, academy = solo_with_academy(client)
+    res = client.delete(f"/alliances/{member['id']}?academies=delete")
+    assert set(res.get_json()["deleted"]) == {member["id"], academy["id"]}
 
 
-def test_delete_last_member_detaching_academies(client):
-    lead = founder(client)
-    academy = alliance(client, role="academy", academyOf=lead["familyId"])
-    client.delete(f"/alliances/{lead['id']}?academies=detach")
+def test_delete_last_member_detaching_academy(client):
+    member, academy = solo_with_academy(client)
+    client.delete(f"/alliances/{member['id']}?academies=detach")
     assert client.alliance(academy["id"])["academyOf"] is None
     assert client.families() == []
 
 
-def test_delete_last_member_moving_academies(client):
-    lead, other = founder(client), founder(client)
-    academy = alliance(client, role="academy", academyOf=lead["familyId"])
-    client.delete(f"/alliances/{lead['id']}?academies=move&moveTo={other['familyId']}")
+def test_delete_last_member_moving_academy(client):
+    member, academy = solo_with_academy(client)
+    other = founder(client)
+    client.delete(f"/alliances/{member['id']}?academies=move&moveTo={other['familyId']}")
     assert client.alliance(academy["id"])["academyOf"] == other["familyId"]
 
 
-def test_move_academies_rejects_bad_destination(client):
-    lead = founder(client)
-    alliance(client, role="academy", academyOf=lead["familyId"])
+def test_move_academy_rejects_bad_destination(client):
+    member, _ = solo_with_academy(client)
     elsewhere = founder(client, server="4181")
-    taken = founder(client)
-    alliance(client, role="academy", academyOf=taken["familyId"])
-    for dest in ("nope", lead["familyId"], elsewhere["familyId"], taken["familyId"]):
-        res = client.delete(f"/alliances/{lead['id']}?academies=move&moveTo={dest}")
+    taken, _ = solo_with_academy(client)
+    for dest in ("nope", member["familyId"], elsewhere["familyId"], taken["familyId"]):
+        res = client.delete(f"/alliances/{member['id']}?academies=move&moveTo={dest}")
         assert res.status_code == 400, dest
 
 
@@ -556,7 +596,8 @@ GROUP_MODEL = {
 
 
 def check_migrated(user):
-    """Every old model describes: Root + Fam in one family, Aca its academy, Lonely a family of one."""
+    """Every old model describes: Root + Fam in one family, Aca its academy, and Lonely, whose family of
+    one (no academy) is now just an independent alliance."""
     graph = user.get("/graph").get_json()
     assert [s["number"] for s in graph["servers"]] == ["0042"]
     by_id = {a["id"]: a for a in graph["alliances"]}
@@ -565,8 +606,8 @@ def check_migrated(user):
     assert by_id["r1"]["familyId"] == by_id["f1"]["familyId"] is not None
     assert by_id["a1"]["familyId"] is None
     assert by_id["a1"]["academyOf"] == by_id["r1"]["familyId"]
-    assert by_id["r2"]["familyId"] not in (None, by_id["r1"]["familyId"])
-    assert {f["id"] for f in graph["families"]} == {by_id["r1"]["familyId"], by_id["r2"]["familyId"]}
+    assert by_id["r2"]["familyId"] is None
+    assert {f["id"] for f in graph["families"]} == {by_id["r1"]["familyId"]}
     assert all(set(f) == {"id", "server", "createdAt"} for f in graph["families"])
     return graph
 
@@ -594,10 +635,11 @@ def test_migration_turns_extra_families_into_allies(tmp_path):
     user = new_user(create_app(tmp_path).test_client(), "old")
     model = json.loads(json.dumps(GROUP_MODEL))
     model["alliances"][3]["familyIds"] = ["F2", "F1"]  # Lonely was in both families...
-    model["alliances"].append(  # ...and F2 has another member, so it survives the migration.
-        {"id": "x", "name": "X", "tag": "X", "server": "0042", "familyIds": ["F2"], "academyIds": [],
-         "alliedFamilyIds": []}
-    )
+    for extra in ("x", "y"):  # ...and F2 has two other members, so it survives the migration.
+        model["alliances"].append(
+            {"id": extra, "name": extra, "tag": extra, "server": "0042", "familyIds": ["F2"], "academyIds": [],
+             "alliedFamilyIds": []}
+        )
     write_old(tmp_path, user, model)
     lonely = user.alliance("r2")
     # It keeps the oldest family (F1) and is allied with the other.
