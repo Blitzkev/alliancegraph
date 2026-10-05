@@ -188,7 +188,7 @@ export default function AllianceGraph({ servers, families, academies, alliances,
             cls: `alliance${rootIds.has(a.id) ? " root" : ""}`,
             lines: [
               { text: formatAlliance({ ...a, name: truncate(a.name) }), cls: "box-title" },
-              { text: formatPower(a.power), cls: "box-sub" },
+              { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
             ],
           });
           g.on("mouseenter mousemove", (event) =>
