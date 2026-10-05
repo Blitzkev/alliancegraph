@@ -24,6 +24,10 @@ const powerOf = (a) => BigInt(a.power || "0");
 
 export const formatPower = (power) => BigInt(power || "0").toLocaleString("en-US");
 
+// Exact sum of the alliances' power, as a digit string.
+export const totalPower = (alliances) =>
+  alliances.reduce((sum, a) => sum + BigInt(a.power || "0"), BigInt(0)).toString();
+
 // "1,200,000" / "1 200 000" / "1200000" -> "1200000"; "" -> "0"; invalid -> null.
 export function parsePower(text) {
   const digits = text.replace(/[,_\s]/g, "");

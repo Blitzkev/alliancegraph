@@ -9,6 +9,7 @@ import {
   formatPower,
   formatServer,
   sortFamilies,
+  totalPower,
 } from "../format";
 
 // Long notes are clipped to a few lines until expanded.
@@ -92,21 +93,24 @@ function FamilyDetails({ family, alliances, onEditAlliance }) {
   const leader = familyLeader(family.id, alliances);
   const members = [...familyMembers(family.id, alliances)].sort(byPower); // leader comes first
   return (
-    <ul className="tree">
-      <AllianceList label="Members" kind="family" items={members} leaderId={leader?.id} onEdit={onEditAlliance} />
-      <AllianceList
-        label="Academies"
-        kind="academy"
-        items={[...familyAcademies(family.id, alliances)].sort(byPower)}
-        onEdit={onEditAlliance}
-      />
-      <AllianceList
-        label="Allied alliances"
-        kind="allied"
-        items={alliances.filter((a) => a.alliedFamilyIds.includes(family.id)).sort(byPower)}
-        onEdit={onEditAlliance}
-      />
-    </ul>
+    <>
+      <p className="panel-power">Total power: {formatPower(totalPower(members))}</p>
+      <ul className="tree">
+        <AllianceList label="Members" kind="family" items={members} leaderId={leader?.id} onEdit={onEditAlliance} />
+        <AllianceList
+          label="Academies"
+          kind="academy"
+          items={[...familyAcademies(family.id, alliances)].sort(byPower)}
+          onEdit={onEditAlliance}
+        />
+        <AllianceList
+          label="Allied alliances"
+          kind="allied"
+          items={alliances.filter((a) => a.alliedFamilyIds.includes(family.id)).sort(byPower)}
+          onEdit={onEditAlliance}
+        />
+      </ul>
+    </>
   );
 }
 

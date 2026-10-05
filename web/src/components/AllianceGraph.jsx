@@ -11,6 +11,7 @@ import {
   formatServer,
   formatTag,
   sortFamilies,
+  totalPower,
 } from "../format";
 
 // The selected kingdom (server) is drawn top to bottom: each family (oldest first) as a light blue
@@ -31,6 +32,7 @@ const CELL_GAP = 14; // space between alliances inside a bubble (and in the inde
 const BUBBLE_PAD = 14; // extra room between the alliances and the bubble's edge
 const ACADEMY_GAP = 36; // between a family's bubble and its academies' bubble
 const FAMILY_GAP = 56; // between one family (with its academies) and the next
+const TOTAL_H = 26; // the "Total Power level" line at the top of a family's bubble
 
 const keyOf = (kind, id) => `${kind}:${id}`;
 
@@ -226,9 +228,26 @@ export default function AllianceGraph({ server, families, alliances, selected, o
         const g = groupLayer.append("g").attr("class", `bubble bubble-${kind}`);
         const shape = g.append("ellipse");
         const layout = drawGroup(g, members);
-        // An ellipse with these radii passes through the corners of the grid's bounding box.
-        const rx = (layout.width / 2) * Math.SQRT2 + BUBBLE_PAD;
-        const ry = (layout.height / 2) * Math.SQRT2 + BUBBLE_PAD;
+        let { width, height } = layout;
+        if (kind === "family") {
+          // The family's total power sits above its alliances; move the grid down to make room.
+          const total = g
+            .append("text")
+            .attr("class", "bubble-total")
+            .attr("text-anchor", "middle")
+            .attr("dy", "0.35em")
+            .text(`Total Power level: ${formatPower(totalPower(members))}`);
+          height += TOTAL_H;
+          width = Math.max(width, total.node().getComputedTextLength());
+          total.attr("y", -height / 2 + TOTAL_H / 2 - 4);
+          layout.slots.forEach((slot, i) => {
+            slot.y += TOTAL_H / 2;
+            layout.boxes[i].attr("transform", `translate(${slot.x},${slot.y})`);
+          });
+        }
+        // An ellipse with these radii passes through the corners of the content's bounding box.
+        const rx = (width / 2) * Math.SQRT2 + BUBBLE_PAD;
+        const ry = (height / 2) * Math.SQRT2 + BUBBLE_PAD;
         shape.attr("rx", rx).attr("ry", ry);
         g.datum({ kind: "family", id: familyId });
         shape
@@ -239,7 +258,7 @@ export default function AllianceGraph({ server, families, alliances, selected, o
           .on("mouseenter mousemove", (event) =>
             showTooltip(event, [
               kind === "family" ? formatFamily(familyId, alliances) : `Academies of ${formatFamily(familyId, alliances)}`,
-              `${members.length} alliance(s)`,
+              `${members.length} alliance(s), total power ${formatPower(totalPower(members))}`,
             ]),
           )
           .on("mouseleave", hideTooltip);
