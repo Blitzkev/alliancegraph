@@ -32,7 +32,7 @@ const CELL_GAP = 14; // space between alliances inside a bubble (and in the inde
 const BUBBLE_PAD = 14; // extra room between the alliances and the bubble's edge
 const ACADEMY_GAP = 36; // between a family's bubble and its academies' bubble
 const FAMILY_GAP = 56; // between one family (with its academies) and the next
-const TOTAL_H = 26; // the "Total Power level" line at the top of a family's bubble
+const TOTAL_H = 26; // the "Total Power level" line at the top of each bubble
 
 const keyOf = (kind, id) => `${kind}:${id}`;
 
@@ -229,22 +229,20 @@ export default function AllianceGraph({ server, families, alliances, selected, o
         const shape = g.append("ellipse");
         const layout = drawGroup(g, members);
         let { width, height } = layout;
-        if (kind === "family") {
-          // The family's total power sits above its alliances; move the grid down to make room.
-          const total = g
-            .append("text")
-            .attr("class", "bubble-total")
-            .attr("text-anchor", "middle")
-            .attr("dy", "0.35em")
-            .text(`Total Power level: ${formatPower(totalPower(members))}`);
-          height += TOTAL_H;
-          width = Math.max(width, total.node().getComputedTextLength());
-          total.attr("y", -height / 2 + TOTAL_H / 2 - 4);
-          layout.slots.forEach((slot, i) => {
-            slot.y += TOTAL_H / 2;
-            layout.boxes[i].attr("transform", `translate(${slot.x},${slot.y})`);
-          });
-        }
+        // The bubble's total power sits above its alliances; move the grid down to make room.
+        const total = g
+          .append("text")
+          .attr("class", "bubble-total")
+          .attr("text-anchor", "middle")
+          .attr("dy", "0.35em")
+          .text(`Total Power level: ${formatPower(totalPower(members))}`);
+        height += TOTAL_H;
+        width = Math.max(width, total.node().getComputedTextLength());
+        total.attr("y", -height / 2 + TOTAL_H / 2 - 4);
+        layout.slots.forEach((slot, i) => {
+          slot.y += TOTAL_H / 2;
+          layout.boxes[i].attr("transform", `translate(${slot.x},${slot.y})`);
+        });
         // An ellipse with these radii passes through the corners of the content's bounding box.
         const rx = (width / 2) * Math.SQRT2 + BUBBLE_PAD;
         const ry = (height / 2) * Math.SQRT2 + BUBBLE_PAD;
