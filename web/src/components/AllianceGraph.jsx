@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
 import {
   byPower,
-  familyAcademies,
+  familyAcademy,
   familyLeader,
   familyMembers,
   formatAlliance,
@@ -15,7 +15,7 @@ import {
 } from "../format";
 
 // The selected kingdom (server) is drawn top to bottom: each family (oldest first) as a light blue
-// bubble around its alliances, with a light green bubble of its academies inside it, below them;
+// bubble around its alliances, with its academy (if any) as a green box inside it, below them;
 // independent alliances in a row at the bottom. Every alliance appears exactly once; allied links
 // are dashed curves from a family's bubble to the alliance.
 const COLORS = {
@@ -30,7 +30,7 @@ const ALLIANCE_H = 40;
 const NODE_PAD_X = 12;
 const CELL_GAP = 14; // space between alliances inside a bubble (and in the independent row)
 const BUBBLE_PAD = 14; // extra room between the alliances and the bubble's edge
-const ACADEMY_GAP = 18; // between a family's alliances and its academies' bubble inside it
+const ACADEMY_GAP = 16; // between a family's alliances and its academy below them
 const FAMILY_GAP = 56; // between one family (with its academies) and the next
 const TOTAL_H = 26; // the "Total Power level" line at the top of each bubble
 
@@ -147,23 +147,26 @@ export default function AllianceGraph({ server, families, alliances, selected, o
         ];
       };
 
+      // One alliance box (tag over power), with its tooltip.
+      const drawAlliance = (parent, a, cls) => {
+        const g = drawBox(parent, {
+          kind: "alliance",
+          id: a.id,
+          height: ALLIANCE_H,
+          cls: `alliance ${cls}`,
+          lines: [
+            { text: formatTag(a.tag), cls: "box-title" },
+            { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
+          ],
+        });
+        g.on("mouseenter mousemove", (event) => showTooltip(event, describe(a))).on("mouseleave", hideTooltip);
+        return g;
+      };
+
       // A group of alliance boxes laid out in a compact grid around (0, 0) inside `parent`, which is
       // later moved to (cx, cy). Returns the slot layout so boxes can be dragged between slots.
       const drawGroup = (parent, members) => {
-        const boxes = members.map((a) => {
-          const g = drawBox(parent, {
-            kind: "alliance",
-            id: a.id,
-            height: ALLIANCE_H,
-            cls: `alliance${leaderIds.has(a.id) ? " root" : ""}`,
-            lines: [
-              { text: formatTag(a.tag), cls: "box-title" },
-              { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
-            ],
-          });
-          g.on("mouseenter mousemove", (event) => showTooltip(event, describe(a))).on("mouseleave", hideTooltip);
-          return g;
-        });
+        const boxes = members.map((a) => drawAlliance(parent, a, leaderIds.has(a.id) ? "root" : ""));
         const cols = Math.max(1, Math.ceil(Math.sqrt(members.length)));
         const rows = Math.ceil(members.length / cols);
         const cellW = Math.max(0, ...boxes.map((b) => b.width));
@@ -224,10 +227,10 @@ export default function AllianceGraph({ server, families, alliances, selected, o
       };
 
       // A tinted ellipse around a group's alliances; clicking it selects the family.
-      // A tinted ellipse around a group's alliances, topped by their total power; clicking it selects
-      // the family. A family's bubble also holds its academies' bubble, below its own alliances.
-      const drawBubble = (members, kind, familyId, parent = groupLayer, academies = []) => {
-        const g = parent.append("g").attr("class", `bubble bubble-${kind}`);
+      // A light blue ellipse around a family's members, topped by their total power, with the family's
+      // academy (if any) as a green box below them. Clicking the ellipse selects the family.
+      const drawBubble = (members, familyId, academy) => {
+        const g = groupLayer.append("g").attr("class", "bubble bubble-family");
         const shape = g.append("ellipse");
         const layout = drawGroup(g, members);
         const total = g
@@ -236,14 +239,10 @@ export default function AllianceGraph({ server, families, alliances, selected, o
           .attr("text-anchor", "middle")
           .attr("dy", "0.35em")
           .text(`Total Power level: ${formatPower(totalPower(members))}`);
-        let width = Math.max(layout.width, total.node().getComputedTextLength());
-        let height = TOTAL_H + layout.height;
-        const inner = academies.length ? drawBubble(academies, "academy", familyId, g) : null;
-        if (inner) {
-          width = Math.max(width, 2 * inner.rx);
-          height += ACADEMY_GAP + 2 * inner.ry;
-        }
-        // Stack top to bottom: total, alliances, academies' bubble.
+        const academyBox = academy ? drawAlliance(g, academy, "academy") : null;
+        let width = Math.max(layout.width, total.node().getComputedTextLength(), academyBox?.width ?? 0);
+        const height = TOTAL_H + layout.height + (academyBox ? ACADEMY_GAP + ALLIANCE_H : 0);
+        // Stack top to bottom: total, members, academy.
         const top = -height / 2;
         total.attr("y", top + TOTAL_H / 2 - 4);
         const shift = top + TOTAL_H + layout.height / 2;
@@ -251,12 +250,9 @@ export default function AllianceGraph({ server, families, alliances, selected, o
           slot.y += shift;
           layout.boxes[i].attr("transform", `translate(${slot.x},${slot.y})`);
         });
-        if (inner) {
-          inner.offset = { x: 0, y: height / 2 - inner.ry };
-          inner.g.attr("transform", `translate(${inner.offset.x},${inner.offset.y})`);
-        }
-        // An ellipse with these radii passes through the corners of the content's bounding box, so
-        // it contains everything above (including the academies' ellipse).
+        const academySlot = academyBox ? { x: 0, y: height / 2 - ALLIANCE_H / 2 } : null;
+        academyBox?.attr("transform", `translate(${academySlot.x},${academySlot.y})`);
+        // An ellipse with these radii passes through the corners of the content's bounding box.
         const rx = (width / 2) * Math.SQRT2 + BUBBLE_PAD;
         const ry = (height / 2) * Math.SQRT2 + BUBBLE_PAD;
         shape.attr("rx", rx).attr("ry", ry);
@@ -268,28 +264,24 @@ export default function AllianceGraph({ server, families, alliances, selected, o
           })
           .on("mouseenter mousemove", (event) =>
             showTooltip(event, [
-              kind === "family" ? formatFamily(familyId, alliances) : `Academies of ${formatFamily(familyId, alliances)}`,
-              `${members.length} alliance(s), total power ${formatPower(totalPower(members))}`,
+              formatFamily(familyId, alliances),
+              `${members.length} member(s), total power ${formatPower(totalPower(members))}`,
+              academy ? `Academy: ${formatAlliance(academy)}` : "No academy",
             ]),
           )
           .on("mouseleave", hideTooltip);
         nodes.push({ kind: "family", id: familyId, g });
-        return { g, shape, layout, rx, ry, members, inner };
+        return { g, shape, layout, rx, ry, members, academy, academySlot };
       };
 
-      // Move a bubble (and the academies' bubble inside it) to (cx, cy), keeping `pos` in step.
+      // Move a family's bubble to (cx, cy), keeping `pos` (used by edges) in step.
       const place = (group, cx, cy) => {
         Object.assign(group, { cx, cy });
         group.g.attr("transform", `translate(${cx},${cy})`);
-        const track = (grp) =>
-          grp.members.forEach((a, i) =>
-            pos.set(a.id, { x: grp.cx + grp.layout.slots[i].x, y: grp.cy + grp.layout.slots[i].y, group: grp }),
-          );
-        track(group);
-        if (group.inner) {
-          Object.assign(group.inner, { cx: cx + group.inner.offset.x, cy: cy + group.inner.offset.y });
-          track(group.inner);
-        }
+        group.members.forEach((a, i) =>
+          pos.set(a.id, { x: cx + group.layout.slots[i].x, y: cy + group.layout.slots[i].y, group }),
+        );
+        if (group.academy) pos.set(group.academy.id, { x: cx + group.academySlot.x, y: cy + group.academySlot.y });
       };
 
       // Drag something to a new spot (no physics: it stays where it's dropped); saved on release.
@@ -323,37 +315,19 @@ export default function AllianceGraph({ server, families, alliances, selected, o
         const leader = familyLeader(family.id, alliances);
         if (leader) leaderIds.add(leader.id);
         const members = familyMembers(family.id, serverAlliances).sort(bandOrder);
-        const academies = familyAcademies(family.id, serverAlliances).sort(bandOrder);
-        const fam = drawBubble(members, "family", family.id, groupLayer, academies);
+        const fam = drawBubble(members, family.id, familyAcademy(family.id, serverAlliances));
         const famSpot = family.layout ?? { x: 0, y: y + fam.ry };
         place(fam, famSpot.x, famSpot.y);
         familyBubbles.set(family.id, fam);
         makeDraggable(fam, members, fam.layout);
-        if (fam.inner) makeDraggable(fam.inner, academies, fam.inner.layout);
-        // Dragging either bubble moves the whole family.
-        for (const handle of [fam.shape, fam.inner?.shape].filter(Boolean)) {
-          freeDrag(handle, () => ({ x: fam.cx, y: fam.cy }), (x, y) => place(fam, x, y), saveSpot("family", family.id));
-        }
+        freeDrag(fam.shape, () => ({ x: fam.cx, y: fam.cy }), (x, y) => place(fam, x, y), saveSpot("family", family.id));
         if (!family.layout) y += 2 * fam.ry + FAMILY_GAP;
       }
 
       // Independent alliances: a row at the bottom, centred under the families, unless dragged.
       const independents = serverAlliances.filter((a) => !a.familyId && !a.academyOf).sort(bandOrder);
       if (independents.length) {
-        const boxes = independents.map((a) => {
-          const box = drawBox(groupLayer, {
-            kind: "alliance",
-            id: a.id,
-            height: ALLIANCE_H,
-            cls: "alliance independent",
-            lines: [
-              { text: formatTag(a.tag), cls: "box-title" },
-              { text: `Power: ${formatPower(a.power)}`, cls: "box-sub" },
-            ],
-          });
-          box.on("mouseenter mousemove", (event) => showTooltip(event, describe(a))).on("mouseleave", hideTooltip);
-          return box;
-        });
+        const boxes = independents.map((a) => drawAlliance(groupLayer, a, "independent"));
         const width = boxes.reduce((sum, b) => sum + b.width, 0) + (boxes.length - 1) * CELL_GAP;
         let x = -width / 2;
         independents.forEach((a, i) => {
@@ -527,8 +501,8 @@ function LegendBody() {
   return (
     <div className="legend-body">
       <div className="legend-row">{bubble("legend-family")} Family</div>
-      <div className="legend-row">{bubble("legend-academy")} A family's academies (inside it)</div>
       <div className="legend-row">{swatch("#fff", COLORS.allianceBorder, 3)} Alliance</div>
+      <div className="legend-row">{swatch("#dcfce7", COLORS.academy, 3)} The family's academy</div>
       <div className="legend-row">{swatch("#fff7ed", COLORS.root, 3)} Family leader (strongest)</div>
       <div className="legend-row">{line("edge-allied")} Allied with a family</div>
       <div className="legend-hint">

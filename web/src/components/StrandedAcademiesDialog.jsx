@@ -5,8 +5,11 @@ import { familyAcademies, formatAlliance, formatFamily, sortFamilies } from "../
 // another family on the server, become independent, or are deleted too.
 export default function StrandedAcademiesDialog({ alliance, families, alliances, onConfirm, onClose }) {
   const academies = familyAcademies(alliance.familyId, alliances);
+  // A family can only have one academy, so only families without one can take it.
   const destinations = sortFamilies(
-    families.filter((f) => f.server === alliance.server && f.id !== alliance.familyId),
+    families.filter(
+      (f) => f.server === alliance.server && f.id !== alliance.familyId && !familyAcademies(f.id, alliances).length,
+    ),
   );
   const [choice, setChoice] = useState(destinations.length ? "move" : "detach");
   const [moveTo, setMoveTo] = useState(destinations[0]?.id ?? "");

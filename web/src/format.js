@@ -13,6 +13,8 @@ export const roleOf = (a) => (a.familyId ? "family" : a.academyOf ? "academy" : 
 
 export const familyMembers = (familyId, alliances) => alliances.filter((a) => a.familyId === familyId);
 export const familyAcademies = (familyId, alliances) => alliances.filter((a) => a.academyOf === familyId);
+// A family has at most one academy.
+export const familyAcademy = (familyId, alliances) => alliances.find((a) => a.academyOf === familyId) ?? null;
 
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 export const sortByName = (items) => [...items].sort(byName);

@@ -182,7 +182,7 @@ def test_picking_one_member_joins_the_whole_family(client):
 def test_picking_two_families_merges_them_into_the_oldest(client):
     old = founder(client)
     young = founder(client)
-    academy = alliance(client, role="academy", academyOf=young["familyId"])
+    academy = alliance(client, role="academy", academyOf=young["familyId"])  # only one: merge allowed
     ally = alliance(client, alliedFamilyIds=[old["familyId"], young["familyId"]])
     bridge = alliance(client, role="family", familyWith=[young["id"], old["id"]])
     assert bridge["familyId"] == old["familyId"]
@@ -222,6 +222,28 @@ def test_academy_of_a_family(client):
     lead = founder(client)
     academy = alliance(client, role="academy", academyOf=lead["familyId"])
     assert (academy["familyId"], academy["academyOf"]) == (None, lead["familyId"])
+
+
+def test_family_has_at_most_one_academy(client):
+    lead = founder(client)
+    alliance(client, role="academy", academyOf=lead["familyId"])
+    res = make(client, role="academy", academyOf=lead["familyId"])
+    assert "academyOf" in res.get_json()["errors"]
+
+
+def test_keeping_own_academy_role_is_fine_on_edit(client):
+    lead = founder(client)
+    academy = alliance(client, role="academy", academyOf=lead["familyId"])
+    assert client.patch(f"/alliances/{academy['id']}", json={"name": "Renamed"}).status_code == 200
+
+
+def test_cannot_merge_two_families_with_academies(client):
+    a, b = founder(client), founder(client)
+    alliance(client, role="academy", academyOf=a["familyId"])
+    alliance(client, role="academy", academyOf=b["familyId"])
+    # a is alone in its family, so picking b's family would merge them.
+    res = client.patch(f"/alliances/{a['id']}", json={"role": "family", "familyWith": [b["id"]]})
+    assert "familyWith" in res.get_json()["errors"]
 
 
 def test_academy_requires_existing_family(client):
@@ -382,7 +404,9 @@ def test_move_academies_rejects_bad_destination(client):
     lead = founder(client)
     alliance(client, role="academy", academyOf=lead["familyId"])
     elsewhere = founder(client, server="4181")
-    for dest in ("nope", lead["familyId"], elsewhere["familyId"]):
+    taken = founder(client)
+    alliance(client, role="academy", academyOf=taken["familyId"])
+    for dest in ("nope", lead["familyId"], elsewhere["familyId"], taken["familyId"]):
         res = client.delete(f"/alliances/{lead['id']}?academies=move&moveTo={dest}")
         assert res.status_code == 400, dest
 
@@ -587,6 +611,27 @@ def test_migration_makes_unprotected_academy_members_independent(tmp_path):
     write_old(tmp_path, user, model)
     aca = user.alliance("a1")
     assert (aca["familyId"], aca["academyOf"]) == (None, None)
+
+
+def test_migration_keeps_one_academy_per_family(tmp_path):
+    user = new_user(create_app(tmp_path).test_client(), "old")
+    v2 = {
+        "version": 2,
+        "servers": [{"number": "0042"}],
+        "families": [{"id": "F", "server": "0042", "createdAt": "2026-01-01"}],
+        "alliances": [
+            {"id": "m", "name": "M", "tag": "M", "server": "0042", "power": "1", "notes": "", "familyId": "F",
+             "academyOf": None, "alliedFamilyIds": []},
+            {"id": "weak", "name": "Weak", "tag": "W", "server": "0042", "power": "5", "notes": "",
+             "familyId": None, "academyOf": "F", "alliedFamilyIds": []},
+            {"id": "strong", "name": "Strong", "tag": "S", "server": "0042", "power": "9", "notes": "",
+             "familyId": None, "academyOf": "F", "alliedFamilyIds": []},
+        ],
+    }
+    write_old(tmp_path, user, v2)
+    assert user.alliance("strong")["academyOf"] == "F"
+    weak = user.alliance("weak")
+    assert (weak["academyOf"], weak["alliedFamilyIds"]) == (None, ["F"])
 
 
 def test_imports_legacy_single_file(tmp_path):

@@ -148,11 +148,10 @@ select, input {
 .graph-buttons .btn { padding: 5px 12px; }
 
 /* Family and academy bubbles */
-.bubble ellipse, .legend-family, .legend-academy { stroke-width: 1.5; cursor: pointer; }
+.bubble ellipse, .legend-family { stroke-width: 1.5; cursor: pointer; }
 .bubble ellipse.draggable { cursor: grab; }
 .bubble ellipse.draggable:active { cursor: grabbing; }
 .bubble-family ellipse, .legend-family { fill: #dbeafe; fill-opacity: 0.7; stroke: #93c5fd; }
-.bubble-academy ellipse, .legend-academy { fill: #dcfce7; fill-opacity: 0.8; stroke: #86efac; }
 .bubble.selected ellipse { stroke: #111827; stroke-width: 3; }
 .bubble-total { font-size: 14px; font-weight: 700; fill: var(--text); pointer-events: none; font-variant-numeric: tabular-nums; }
 
@@ -162,6 +161,7 @@ select, input {
 .gnode text { pointer-events: none; }
 .gnode.alliance rect { fill: #fff; stroke: #94a3b8; }
 .gnode.alliance.root rect { fill: #fff7ed; stroke: var(--root); stroke-width: 2.5; }
+.gnode.alliance.academy rect { fill: #dcfce7; stroke: var(--academy); stroke-width: 2; }
 .gnode.selected rect { stroke: #111827; stroke-width: 3; }
 .gnode.draggable { cursor: grab; }
 .gnode.dragging { cursor: grabbing; }

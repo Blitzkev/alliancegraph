@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   byPower,
-  familyAcademies,
+  familyAcademy,
   familyLeader,
   familyMembers,
   formatAlliance,
@@ -92,21 +92,13 @@ function FamilyLinks({ label, kind, familyIds, alliances, onSelect }) {
 function FamilyDetails({ family, alliances, onEditAlliance }) {
   const leader = familyLeader(family.id, alliances);
   const members = [...familyMembers(family.id, alliances)].sort(byPower); // leader comes first
-  const academies = [...familyAcademies(family.id, alliances)].sort(byPower);
+  const academy = familyAcademy(family.id, alliances);
   return (
     <>
       <p className="panel-power">Total power: {formatPower(totalPower(members))}</p>
-      {academies.length > 0 && (
-        <p className="panel-power">Academies' total power: {formatPower(totalPower(academies))}</p>
-      )}
       <ul className="tree">
         <AllianceList label="Members" kind="family" items={members} leaderId={leader?.id} onEdit={onEditAlliance} />
-        <AllianceList
-          label="Academies"
-          kind="academy"
-          items={academies}
-          onEdit={onEditAlliance}
-        />
+        <AllianceList label="Academy" kind="academy" items={academy ? [academy] : []} onEdit={onEditAlliance} />
         <AllianceList
           label="Allied alliances"
           kind="allied"

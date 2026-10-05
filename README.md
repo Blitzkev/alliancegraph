@@ -8,17 +8,17 @@ Everything is an **alliance** (name, tag, power, notes). Relationships are set i
   whole existing family) this alliance is in a family with; picking alliances from different families
   merges them, and picking nothing starts a new family. A family is led by its strongest member
   (highest power, ties by name) and is shown as "<leader> family".
-- **Academy**: an academy of exactly one family. An alliance is either a family member, an academy, or
-  independent.
+- **Academy**: the academy of exactly one family; a family has at most one academy. An alliance is either
+  a family member, an academy, or independent.
 - **Allied**: any alliance can also be allied with any number of other families, e.g. a "loner" roughly
   aligned with a family. Shown as a dashed line; it doesn't make it a member.
 
-Deleting a family's last member while it still has academies asks whether to move them to another
-family, make them independent, or delete them.
+Deleting a family's last member while it still has an academy asks whether to move it to another
+family (one without an academy), make it independent, or delete it.
 
 Each server/kingdom has its own tab above the graph (creating one opens its tab); the graph shows one
 kingdom at a time. Each family is a light blue bubble around its alliances (tag and power; the leader
-in amber) and, inside it, a light green bubble of its academies.
+in amber) and, inside it below them, its academy as a green box.
 Independent alliances sit in a row at the bottom, and dashed lines show which families an alliance is
 allied with. Drag a family's bubble or an independent alliance to move it anywhere (positions are saved;
 "Reset layout" puts the kingdom back to the automatic arrangement), drag an alliance inside a bubble to

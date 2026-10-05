@@ -6,8 +6,8 @@ Data model (one file per user, "version": DATA_VERSION):
              while it has a member. layout/academyLayout: where its bubbles were dragged ({x, y}).
   alliances  [{id, name, tag, server, power, notes, familyId, academyOf, alliedFamilyIds, position?,
               layout?}]   position: order within its bubble; layout: where an independent was dragged
-An alliance is a member of at most one family (familyId), OR an academy of exactly one family
-(academyOf), or neither. It can also be allied with any number of other families. A family is led by
+An alliance is a member of at most one family (familyId), OR the academy of exactly one family
+(academyOf), or neither. A family has at most one academy. It can also be allied with any number of other families. A family is led by
 its strongest member (highest power, ties by name). Families and their alliances share a server.
 """
 
@@ -29,7 +29,7 @@ DEFAULT_DATA_DIR = Path(os.environ.get("ALLYGRAPH_DATA_DIR", ROOT_DIR / "data"))
 DIST_DIR = ROOT_DIR / "web" / "dist"
 
 COLLECTIONS = ("servers", "families", "alliances")
-DATA_VERSION = 2
+DATA_VERSION = 3
 ROLES = ("family", "academy", "none")  # family member, academy of a family, independent
 NAME_MAX = 256
 TAG_MAX = 4
@@ -73,14 +73,32 @@ def _unique_name(name, server, groups):
 
 def _upgrade(data):
     """Bring a data file written by an older version up to date. Returns True if anything changed."""
-    if data.get("version") == DATA_VERSION:
+    version = data.get("version")
+    if version == DATA_VERSION:
         return False
-    # Files from before versioning go through the old upgrade chain (ending in named groups), then
-    # become unnamed families.
-    _upgrade_unversioned(data)
-    _groups_to_families(data)
+    if version is None:
+        # Files from before versioning go through the old upgrade chain (ending in named groups),
+        # then become unnamed families (version 2).
+        _upgrade_unversioned(data)
+        _groups_to_families(data)
+    _one_academy_per_family(data)  # version 2 -> 3
     data["version"] = DATA_VERSION
     return True
+
+
+def _one_academy_per_family(data):
+    """A family now has at most one academy: keep the strongest; the others become independent but
+    stay allied with the family, so the link isn't lost."""
+    for family in data["families"]:
+        academies = _academies(data, family["id"])
+        if len(academies) < 2:
+            continue
+        keep = _strongest(academies)
+        for a in academies:
+            if a is not keep:
+                a["academyOf"] = None
+                a.pop("position", None)
+                a["alliedFamilyIds"] = list(dict.fromkeys([*a.get("alliedFamilyIds", []), family["id"]]))
 
 
 def _groups_to_families(data):
@@ -362,14 +380,26 @@ def validate_alliance(payload, data, existing=None):
         if family is None or family["server"] != server:
             errors["academyOf"] = "Pick the family this alliance is an academy of."
         elif existing and existing.get("familyId") == academy_of and not _members(data, academy_of, existing):
-            errors["academyOf"] = "A family can't be left without members while it has academies."
+            errors["academyOf"] = "A family can't be left without members while it has an academy."
+        elif _academies(data, academy_of, existing):
+            errors["academyOf"] = "That family already has an academy; a family can only have one."
 
     allied = _id_list(payload.get("alliedFamilyIds"))
     if allied is None or any(i not in family_by_id or family_by_id[i]["server"] != server for i in allied):
         errors["alliedFamilyIds"] = "Pick families on the same server."
         allied = []
 
-    # A family member can't leave if that would leave its family's academies without a family.
+    # Joining merges the picked family with this alliance's own family-of-one (see apply_alliance);
+    # two families that each have an academy can't become one.
+    if role == "family" and "familyWith" not in errors:
+        merging = {by_id[i].get("familyId") for i in family_with if by_id[i].get("familyId")}
+        old = existing.get("familyId") if existing else None
+        if old and not _members(data, old, existing):
+            merging.add(old)
+        if sum(len(_academies(data, f, existing)) for f in merging) > 1:
+            errors["familyWith"] = "Those families each have an academy; a family can only have one."
+
+    # A family member can't leave if that would leave its family's academy without a family.
     if existing and existing.get("familyId") and "familyWith" not in errors:
         old = existing["familyId"]
         joining = {by_id[i].get("familyId") for i in family_with if i in by_id}
@@ -378,8 +408,8 @@ def validate_alliance(payload, data, existing=None):
         stranded = _academies(data, old, existing)
         if not staying and not _members(data, old, existing) and stranded:
             errors["role"] = (
-                f"This is the last member of its family, which has {len(stranded)} academy alliance(s). "
-                "Move them to another family or make them independent first."
+                "This is the last member of its family, which has an academy. "
+                "Move the academy to another family or make it independent first."
             )
 
     if "tag" not in errors and "server" not in errors:
@@ -672,6 +702,8 @@ def create_app(data_dir=DEFAULT_DATA_DIR):
                     dest = next((f for f in data["families"] if f["id"] == dest_id), None)
                     if dest is None or dest_id == family_id or dest["server"] != target["server"]:
                         return jsonify({"errors": {"moveTo": "Pick another family on the same server."}}), 400
+                    if _academies(data, dest_id):
+                        return jsonify({"errors": {"moveTo": "That family already has an academy."}}), 400
                     for a in academies:
                         a["academyOf"] = dest_id
                         a.pop("position", None)

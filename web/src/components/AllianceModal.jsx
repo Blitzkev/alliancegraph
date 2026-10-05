@@ -141,6 +141,7 @@ export default function AllianceModal({
   const ownFamily =
     role === "family" ? (familyPick?.kind === "family" ? familyPick.id : alliance?.familyId) : role === "academy" ? academyOf : null;
   const alliedShown = allied.filter((id) => id !== ownFamily);
+  const academyTaken = (familyId) => alliances.some((a) => a.academyOf === familyId && a.id !== alliance?.id);
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -281,8 +282,9 @@ export default function AllianceModal({
                       </Chip>
                     ) : serverFamilies.length ? (
                       <TagSearch
-                        // Searching any member's tag picks that member's family.
-                        alliances={others.filter((a) => a.familyId)}
+                        // Searching any member's tag picks that member's family; a family can only have
+                        // one academy, so families that already have another are left out.
+                        alliances={others.filter((a) => a.familyId && !academyTaken(a.familyId))}
                         onPick={(a) => setAcademyOf(a.familyId)}
                         describe={(a) => relationshipNote(a, alliances)}
                         placeholder="Search by tag to pick the family"
