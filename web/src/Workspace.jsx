@@ -1,35 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { deleteAlliance, deleteServer, getGraph, reorderAlliances, reorderFamilies } from "./api";
-import {
-  allianceDeleteMessage,
-  familyMembers,
-  formatAlliance,
-  formatServer,
-  sortFamilies,
-  strandsAcademies,
-  TYPE_LABELS,
-} from "./format";
-import AllianceModal from "./components/AllianceModal";
-import ServerModal from "./components/ServerModal";
+import { deleteItem, deleteServer, getGraph, reorderAlliances } from "./api";
+import { formatAlliance, formatServer, GROUP, membersOf, rootOf, sortByName } from "./format";
 import AllianceGraph from "./components/AllianceGraph";
-import EditAllianceModal from "./components/EditAllianceModal";
-import FamilyPanel from "./components/FamilyPanel";
-import StrandedAcademiesDialog from "./components/StrandedAcademiesDialog";
+import AllianceModal from "./components/AllianceModal";
+import DetailPanel from "./components/DetailPanel";
+import GroupModal from "./components/GroupModal";
+import ServerModal from "./components/ServerModal";
 
-const EMPTY = { servers: [], families: [], alliances: [] };
+const EMPTY = { servers: [], families: [], academies: [], alliances: [] };
+const COLLECTION = { alliance: "alliances", family: "families", academy: "academies" };
 
 export default function Workspace({ user, onSwitchUser }) {
   const [graph, setGraph] = useState(EMPTY);
   const [loadError, setLoadError] = useState(null);
-  const [modal, setModal] = useState(null); // "server" | alliance type | null
+  // modal: { kind: "server" | "alliance" | "family" | "academy", id?: string (edit) } | null
+  const [modal, setModal] = useState(null);
+  const [selected, setSelected] = useState(null); // { kind, id } shown in the side panel
   const [deleteKey, setDeleteKey] = useState("");
   const [deleteError, setDeleteError] = useState(null);
-  const [selectedFamilyId, setSelectedFamilyId] = useState(null);
-  const [editingId, setEditingId] = useState(null);
-  const [strandedId, setStrandedId] = useState(null);
 
-  // One change can ripple (root promotion, academies moving, empty families disappearing),
-  // so after every change we simply reload the whole graph.
+  // One change can ripple (roots promoted, links removed), so after every change we reload it all.
   const refresh = useCallback(
     () =>
       getGraph(user.id)
@@ -49,70 +39,50 @@ export default function Workspace({ user, onSwitchUser }) {
     refresh();
   }, [refresh]);
 
-  const { families, alliances } = graph;
+  const { families, academies, alliances } = graph;
   const servers = useMemo(() => graph.servers.map((s) => s.number).sort(), [graph.servers]);
-  // Derived, so anything deleted elsewhere closes its panel / editor / dialog.
-  const selectedFamily = families.find((f) => f.id === selectedFamilyId) || null;
-  const editing = alliances.find((a) => a.id === editingId) || null;
-  const stranded = alliances.find((a) => a.id === strandedId) || null;
+  const find = (kind, id) => graph[COLLECTION[kind]].find((x) => x.id === id) || null;
+  // Derived, so anything deleted elsewhere closes its panel / editor.
+  const selectedItem = selected && find(selected.kind, selected.id) ? selected : null;
+  const editingItem = modal?.id ? find(modal.kind, modal.id) : null;
+
+  const afterChange = () => {
+    setModal(null);
+    return refresh();
+  };
 
   // Apply a new order right away so the graph doesn't jump back; undo it if saving fails.
-  const reorder = (collection, save) => async (ids) => {
+  const handleReorder = async (ids) => {
     const previous = graph;
     const position = new Map(ids.map((id, i) => [id, i]));
     setGraph((g) => ({
       ...g,
-      [collection]: g[collection].map((x) => (position.has(x.id) ? { ...x, position: position.get(x.id) } : x)),
+      alliances: g.alliances.map((a) => (position.has(a.id) ? { ...a, position: position.get(a.id) } : a)),
     }));
     try {
-      await save(user.id, ids);
+      await reorderAlliances(user.id, ids);
     } catch {
       setGraph(previous);
       setLoadError("Could not save the new order. Please try again.");
     }
   };
-  const handleReorder = reorder("alliances", reorderAlliances);
-  const handleReorderFamilies = reorder("families", reorderFamilies);
 
-  const afterChange = () => {
-    setModal(null);
-    setEditingId(null);
-    setStrandedId(null);
-    return refresh();
-  };
-
-  // Deleting a family's last family alliance while academies remain asks what to do with them.
-  const requestDelete = async (alliance) => {
-    if (strandsAcademies(alliance, alliances)) {
-      setEditingId(null);
-      setStrandedId(alliance.id);
-      return;
-    }
-    if (!window.confirm(allianceDeleteMessage(alliance, alliances))) return;
-    try {
-      await deleteAlliance(user.id, alliance.id);
-      await afterChange();
-    } catch (err) {
-      setDeleteError(Object.values(err.errors).join(" "));
-    }
-  };
-
-  // Delete dropdown values are "server:<number>" or "alliance:<id>".
-  const handleDelete = async () => {
-    const [kind, key] = deleteKey.split(/:(.*)/);
+  const deleteMessage = (kind, item) => {
     if (kind === "alliance") {
-      const target = alliances.find((a) => a.id === key);
-      setDeleteKey("");
-      if (target) await requestDelete(target);
-      return;
+      const roots = rootOf(item, families);
+      let message = `Delete ${formatAlliance(item)}?`;
+      if (roots.length)
+        message += `\n\nIt's the root of ${roots.map((f) => f.name).join(", ")}; the strongest remaining member will take over.`;
+      return message;
     }
-    const count = alliances.filter((a) => a.server === key).length;
-    let message = `Delete ${formatServer(key)}?`;
-    if (count) message += `\n\nThis will also delete its ${count} alliance(s).`;
-    if (!window.confirm(message)) return;
+    const count = membersOf(kind, item.id, alliances).length;
+    return `Delete ${GROUP[kind].label.toLowerCase()} "${item.name}"?${count ? `\n\nIts ${count} alliance(s) are kept.` : ""}`;
+  };
+
+  const handleDeleteItem = async (kind, item) => {
+    if (!window.confirm(deleteMessage(kind, item))) return;
     try {
-      await deleteServer(user.id, key);
-      setDeleteKey("");
+      await deleteItem(user.id, COLLECTION[kind], item.id);
       setDeleteError(null);
       await afterChange();
     } catch (err) {
@@ -120,24 +90,48 @@ export default function Workspace({ user, onSwitchUser }) {
     }
   };
 
-  // Group the delete dropdown by server, then family, so it's clear what falls under what.
-  const deleteOptions = servers.map((server) => (
-    <optgroup key={server} label={formatServer(server)}>
-      <option value={`server:${server}`}>{formatServer(server)} (entire server)</option>
-      {sortFamilies(
-        families.filter((f) => f.server === server),
-        alliances,
-      ).flatMap((f) => {
-        const { root, families: fams, academies } = familyMembers(f.id, alliances);
-        return [root, ...fams, ...academies].filter(Boolean).map((a) => (
-          <option key={a.id} value={`alliance:${a.id}`}>
-            {a.isRoot ? "" : "   "}
-            {formatAlliance(a)} ({a.isRoot ? "Root" : TYPE_LABELS[a.type]})
-          </option>
-        ));
-      })}
-    </optgroup>
-  ));
+  // Delete dropdown values are "<kind>:<id>", with kind server | family | academy | alliance.
+  const handleDelete = async () => {
+    const [kind, key] = deleteKey.split(/:(.*)/);
+    setDeleteKey("");
+    if (kind !== "server") {
+      const item = find(kind, key);
+      if (item) await handleDeleteItem(kind, item);
+      return;
+    }
+    const count = alliances.filter((a) => a.server === key).length;
+    let message = `Delete ${formatServer(key)}?`;
+    message += `\n\nThis also deletes its families, academies and ${count} alliance(s).`;
+    if (!window.confirm(message)) return;
+    try {
+      await deleteServer(user.id, key);
+      setDeleteError(null);
+      await afterChange();
+    } catch (err) {
+      setDeleteError(Object.values(err.errors).join(" "));
+    }
+  };
+
+  const optionsFor = (kind, items, label) =>
+    sortByName(items).map((x) => (
+      <option key={x.id} value={`${kind}:${x.id}`}>
+        {"   "}
+        {label(x)}
+      </option>
+    ));
+  const deleteOptions = servers.map((server) => {
+    const on = (items) => items.filter((x) => x.server === server);
+    return (
+      <optgroup key={server} label={formatServer(server)}>
+        <option value={`server:${server}`}>{formatServer(server)} (entire server)</option>
+        {optionsFor("family", on(families), (f) => `Family: ${f.name}`)}
+        {optionsFor("academy", on(academies), (a) => `Academy: ${a.name}`)}
+        {optionsFor("alliance", on(alliances), formatAlliance)}
+      </optgroup>
+    );
+  });
+
+  const openEdit = (kind, item) => setModal({ kind, id: item.id });
 
   return (
     <div className="app">
@@ -157,20 +151,23 @@ export default function Workspace({ user, onSwitchUser }) {
         <section className="panel">
           <h2>Servers</h2>
           <div className="button-row">
-            <button className="btn btn-server" onClick={() => setModal("server")}>
+            <button className="btn btn-server" onClick={() => setModal({ kind: "server" })}>
               Create Server/Kingdom
             </button>
           </div>
         </section>
 
         <section className="panel">
-          <h2>Create New Alliance</h2>
+          <h2>Create</h2>
           <div className="button-row">
-            <button className="btn btn-family" onClick={() => setModal("family")}>
-              Family Alliance
+            <button className="btn btn-alliance" onClick={() => setModal({ kind: "alliance" })}>
+              Alliance
             </button>
-            <button className="btn btn-academy" onClick={() => setModal("academy")}>
-              Academy Alliance
+            <button className="btn btn-family" onClick={() => setModal({ kind: "family" })}>
+              Family
+            </button>
+            <button className="btn btn-academy" onClick={() => setModal({ kind: "academy" })}>
+              Academy
             </button>
           </div>
         </section>
@@ -183,9 +180,7 @@ export default function Workspace({ user, onSwitchUser }) {
               onChange={(e) => setDeleteKey(e.target.value)}
               disabled={servers.length === 0}
             >
-              <option value="">
-                {servers.length ? "Select a server or alliance…" : "Nothing to delete yet"}
-              </option>
+              <option value="">{servers.length ? "Select something to delete…" : "Nothing to delete yet"}</option>
               {deleteOptions}
             </select>
             <button className="btn btn-danger" onClick={handleDelete} disabled={!deleteKey}>
@@ -203,63 +198,56 @@ export default function Workspace({ user, onSwitchUser }) {
           <AllianceGraph
             servers={servers}
             families={families}
+            academies={academies}
             alliances={alliances}
-            selectedFamily={selectedFamily?.id ?? null}
-            onSelectFamily={setSelectedFamilyId}
+            selected={selectedItem}
+            onSelect={setSelected}
             onReorder={handleReorder}
-            onReorderFamilies={handleReorderFamilies}
           />
         </div>
-        {selectedFamily && (
-          <FamilyPanel
-            family={selectedFamily}
+        {selectedItem && (
+          <DetailPanel
+            selected={selectedItem}
+            families={families}
+            academies={academies}
             alliances={alliances}
-            onEdit={(a) => setEditingId(a.id)}
-            onReorder={handleReorder}
-            onClose={() => setSelectedFamilyId(null)}
+            onSelect={setSelected}
+            onEdit={openEdit}
+            onClose={() => setSelected(null)}
           />
         )}
       </main>
 
-      {modal === "server" && (
+      {modal?.kind === "server" && (
         <ServerModal userId={user.id} onSaved={afterChange} onClose={() => setModal(null)} />
       )}
-      {modal && modal !== "server" && (
+      {modal?.kind === "alliance" && (!modal.id || editingItem) && (
         <AllianceModal
+          key={modal.id ?? "new"}
           userId={user.id}
-          type={modal}
+          alliance={editingItem}
+          servers={servers}
+          families={families}
+          academies={academies}
+          onSaved={afterChange}
+          onDelete={(a) => handleDeleteItem("alliance", a)}
+          onClose={() => setModal(null)}
+        />
+      )}
+      {(modal?.kind === "family" || modal?.kind === "academy") && (!modal.id || editingItem) && (
+        <GroupModal
+          key={modal.id ?? `new-${modal.kind}`}
+          userId={user.id}
+          kind={modal.kind}
+          group={editingItem}
           servers={servers}
           families={families}
           alliances={alliances}
           onSaved={afterChange}
+          onDelete={handleDeleteItem}
           onClose={() => setModal(null)}
-        />
-      )}
-      {editing && (
-        <EditAllianceModal
-          key={editing.id}
-          userId={user.id}
-          alliance={editing}
-          families={families}
-          alliances={alliances}
-          onSaved={afterChange}
-          onRequestDelete={requestDelete}
-          onClose={() => setEditingId(null)}
-        />
-      )}
-      {stranded && (
-        <StrandedAcademiesDialog
-          alliance={stranded}
-          families={families}
-          alliances={alliances}
-          onConfirm={async (academies) => {
-            await deleteAlliance(user.id, stranded.id, academies);
-            await afterChange();
-          }}
-          onClose={() => setStrandedId(null)}
         />
       )}
     </div>
   );
 }
-

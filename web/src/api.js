@@ -4,7 +4,6 @@ async function request(url, options) {
   if (!res.ok) {
     const err = new Error("Request failed");
     err.status = res.status;
-    err.body = body;
     err.errors = body.errors || { _: `Server error (${res.status})` };
     throw err;
   }
@@ -27,29 +26,18 @@ export const createUser = (name) => post("/api/users", { name });
 
 const userBase = (userId) => `/api/users/${encodeURIComponent(userId)}`;
 
-// { servers, families, alliances }
+// { servers, families, academies, alliances }
 export const getGraph = (userId) => request(`${userBase(userId)}/graph`);
 
 export const createServer = (userId, number) => post(`${userBase(userId)}/servers`, { number });
 export const deleteServer = (userId, number) =>
   del(`${userBase(userId)}/servers/${encodeURIComponent(number)}`);
 
-export const createAlliance = (userId, alliance) => post(`${userBase(userId)}/alliances`, alliance);
-export const updateAlliance = (userId, id, fields) =>
-  patch(`${userBase(userId)}/alliances/${encodeURIComponent(id)}`, fields);
-
-// academies: undefined | "delete" | { moveTo: familyId } — needed when deleting a family's last
-// family alliance while it still has academies (the server answers 409 otherwise).
-export const deleteAlliance = (userId, id, academies) => {
-  const params = new URLSearchParams();
-  if (academies === "delete") params.set("academies", "delete");
-  else if (academies?.moveTo) {
-    params.set("academies", "move");
-    params.set("moveTo", academies.moveTo);
-  }
-  const query = params.toString() ? `?${params}` : "";
-  return del(`${userBase(userId)}/alliances/${encodeURIComponent(id)}${query}`);
-};
+// collection: "alliances" | "families" | "academies"
+export const createItem = (userId, collection, fields) => post(`${userBase(userId)}/${collection}`, fields);
+export const updateItem = (userId, collection, id, fields) =>
+  patch(`${userBase(userId)}/${collection}/${encodeURIComponent(id)}`, fields);
+export const deleteItem = (userId, collection, id) =>
+  del(`${userBase(userId)}/${collection}/${encodeURIComponent(id)}`);
 
 export const reorderAlliances = (userId, ids) => put(`${userBase(userId)}/alliances/order`, { ids });
-export const reorderFamilies = (userId, ids) => put(`${userBase(userId)}/families/order`, { ids });

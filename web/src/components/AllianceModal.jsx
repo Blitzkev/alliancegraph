@@ -1,108 +1,73 @@
 import { useEffect, useState } from "react";
-import { createAlliance } from "../api";
+import { createItem, updateItem } from "../api";
 import {
   charLength,
-  familyRoot,
   formatAlliance,
-  formatFamily,
+  formatPower,
   formatServer,
+  GROUP,
   parsePower,
-  sortFamilies,
-  TYPE_LABELS,
+  sortByName,
 } from "../format";
 import NotesField, { notesError } from "./NotesField";
 import PowerField, { powerError } from "./PowerField";
 
-export const NEW_FAMILY = "";
-
-function validate({ name, tag, power, notes }, server, isAcademy, familyId) {
-  const errors = {};
-  const n = charLength(name.trim());
-  const t = charLength(tag.trim());
-  if (n === 0) errors.name = "Name is required.";
-  else if (n > 256) errors.name = "Name must be at most 256 characters.";
-  if (t === 0) errors.tag = "Tag is required.";
-  else if (t > 4) errors.tag = "Tag must be 1-4 characters.";
-  if (!server) errors.server = "Select a server.";
-  if (isAcademy && !familyId) errors.familyId = "Select a family.";
-  const powerProblem = powerError(power);
-  if (powerProblem) errors.power = powerProblem;
-  const notesProblem = notesError(notes);
-  if (notesProblem) errors.notes = notesProblem;
-  return errors;
-}
-
-// Family picker shared by the create and edit modals.
-export function FamilySelect({ value, onChange, families, alliances, allowNew, error }) {
+// Pick any number of a server's families or academies.
+function GroupChecklist({ kind, groups, selected, onChange, rootIds, error }) {
+  const { plural, label } = GROUP[kind];
+  const toggle = (id) =>
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   return (
-    <label>
-      Family
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {allowNew ? (
-          <option value={NEW_FAMILY}>New family (this alliance becomes its root)</option>
-        ) : (
-          <option value="">Select a family…</option>
-        )}
-        {families.map((f) => (
-          <option key={f.id} value={f.id}>
-            {formatFamily(f.id, alliances)}
-          </option>
-        ))}
-      </select>
+    <fieldset className={`group-checklist type-${kind}`}>
+      <legend>
+        {plural} <small>({selected.length} selected)</small>
+      </legend>
+      {groups.length === 0 ? (
+        <p className="muted">No {plural.toLowerCase()} on this server yet. Create one with “{label}”.</p>
+      ) : (
+        groups.map((g) => (
+          <label key={g.id} className="checkbox">
+            <input type="checkbox" checked={selected.includes(g.id)} onChange={() => toggle(g.id)} />
+            <span>
+              {g.name}
+              {rootIds.includes(g.id) && <span className="root-badge">Root</span>}
+            </span>
+          </label>
+        ))
+      )}
       {error && <span className="error">{error}</span>}
-    </label>
+    </fieldset>
   );
 }
 
-export function RootCheckbox({ checked, onChange, familyId, alliances, locked }) {
-  const current = familyRoot(familyId, alliances);
-  return (
-    <label className="checkbox">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={locked}
-      />
-      <span>
-        Root of the family
-        <small>
-          {locked
-            ? " (set root on another family alliance to change it)"
-            : current && ` (replaces ${formatAlliance(current)})`}
-        </small>
-      </span>
-    </label>
-  );
-}
-
-export default function AllianceModal({ userId, type, servers, families, alliances, onSaved, onClose }) {
-  const isAcademy = type === "academy";
-  const blocker =
-    servers.length === 0
-      ? "A Server/Kingdom must exist before you can create an alliance."
-      : isAcademy && families.length === 0
-        ? "A Family Alliance must exist before you can create an Academy Alliance."
-        : null;
-
-  const [fields, setFields] = useState({ name: "", tag: "", power: "", notes: "" });
-  const [server, setServer] = useState(servers.length === 1 ? servers[0] : "");
-  const [familyId, setFamilyId] = useState(NEW_FAMILY);
-  const [isRoot, setIsRoot] = useState(false);
+// Create (no `alliance`) or edit an alliance.
+export default function AllianceModal({
+  userId,
+  alliance,
+  servers,
+  families,
+  academies,
+  onSaved,
+  onDelete,
+  onClose,
+}) {
+  const editing = Boolean(alliance);
+  const [server, setServer] = useState(alliance?.server ?? (servers.length === 1 ? servers[0] : ""));
+  const [fields, setFields] = useState({
+    name: alliance?.name ?? "",
+    tag: alliance?.tag ?? "",
+    power: alliance ? formatPower(alliance.power) : "",
+    notes: alliance?.notes ?? "",
+    familyIds: alliance?.familyIds ?? [],
+    academyIds: alliance?.academyIds ?? [],
+  });
   const [errors, setErrors] = useState({});
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  // Alliances can only be related on the same server.
-  const serverFamilies = sortFamilies(
-    families.filter((f) => f.server === server),
-    alliances,
-  );
-  const noFamiliesOnServer = isAcademy && Boolean(server) && serverFamilies.length === 0;
-
-  useEffect(() => {
-    setFamilyId(isAcademy && serverFamilies.length === 1 ? serverFamilies[0].id : NEW_FAMILY);
-    setIsRoot(false);
-  }, [server]);
+  // Groups only ever contain alliances from their own server.
+  const serverFamilies = sortByName(families.filter((f) => f.server === server));
+  const serverAcademies = sortByName(academies.filter((a) => a.server === server));
+  const rootIds = editing ? families.filter((f) => f.rootId === alliance.id).map((f) => f.id) : [];
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -110,30 +75,42 @@ export default function AllianceModal({ userId, type, servers, families, allianc
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const set = (key) => (e) => setFields((f) => ({ ...f, [key]: e.target.value }));
+  const setField = (key) => (value) => setFields((f) => ({ ...f, [key]: value }));
+  const changeServer = (value) => {
+    setServer(value);
+    setFields((f) => ({ ...f, familyIds: [], academyIds: [] }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const found = validate(fields, server, isAcademy, familyId);
+    const found = {};
+    const n = charLength(fields.name.trim());
+    const t = charLength(fields.tag.trim());
+    if (n === 0) found.name = "Name is required.";
+    else if (n > 256) found.name = "Name must be at most 256 characters.";
+    if (t === 0) found.tag = "Tag is required.";
+    else if (t > 4) found.tag = "Tag must be 1-4 characters.";
+    if (!server) found.server = "Select a server.";
+    const powerProblem = powerError(fields.power);
+    if (powerProblem) found.power = powerProblem;
+    const notesProblem = notesError(fields.notes);
+    if (notesProblem) found.notes = notesProblem;
     setErrors(found);
     if (Object.keys(found).length) return;
-    setSaving(true);
+
+    setBusy(true);
+    const body = { ...fields, power: parsePower(fields.power), server };
     try {
-      await createAlliance(userId, {
-        ...fields,
-        power: parsePower(fields.power),
-        server,
-        type,
-        familyId: familyId || null,
-        isRoot: !isAcademy && Boolean(familyId) && isRoot,
-      });
+      if (editing) await updateItem(userId, "alliances", alliance.id, body);
+      else await createItem(userId, "alliances", body);
       onSaved();
     } catch (err) {
       setErrors(err.errors);
-      setSaving(false);
+      setBusy(false);
     }
   };
 
+  const blocker = servers.length === 0 ? "A Server/Kingdom must exist before you can create an alliance." : null;
   const preview =
     fields.name || fields.tag
       ? formatAlliance({ name: fields.name.trim(), tag: fields.tag.trim(), server: server || "????" })
@@ -141,89 +118,93 @@ export default function AllianceModal({ userId, type, servers, families, allianc
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <form className={`modal modal-${type}`} onSubmit={handleSubmit} noValidate>
-        <h2>New {TYPE_LABELS[type]} Alliance</h2>
+      <form className="modal modal-alliance" onSubmit={handleSubmit} noValidate>
+        <h2>
+          {editing ? "Edit Alliance" : "New Alliance"}
+          {rootIds.length > 0 && <span className="root-badge">Root</span>}
+        </h2>
 
         {blocker ? (
           <p className="error banner">{blocker}</p>
         ) : (
           <>
-            <label>
-              Server/Kingdom
-              <select value={server} onChange={(e) => setServer(e.target.value)} autoFocus>
-                <option value="">Select a server…</option>
-                {servers.map((s) => (
-                  <option key={s} value={s}>
-                    {formatServer(s)}
-                  </option>
-                ))}
-              </select>
-              {errors.server && <span className="error">{errors.server}</span>}
-            </label>
-
-            {server && !noFamiliesOnServer && (
-              <FamilySelect
-                value={familyId}
-                onChange={(id) => {
-                  setFamilyId(id);
-                  setIsRoot(false);
-                }}
-                families={serverFamilies}
-                alliances={alliances}
-                allowNew={!isAcademy}
-                error={errors.familyId}
-              />
-            )}
-            {noFamiliesOnServer && (
-              <p className="error">
-                {formatServer(server)} has no families. Create a Family Alliance there first.
+            {editing ? (
+              <p className="modal-note">
+                {formatServer(server)} <small>(an alliance's server can't be changed)</small>
               </p>
-            )}
-            {!isAcademy && familyId && (
-              <RootCheckbox checked={isRoot} onChange={setIsRoot} familyId={familyId} alliances={alliances} />
+            ) : (
+              <label>
+                Server/Kingdom
+                <select value={server} onChange={(e) => changeServer(e.target.value)} autoFocus>
+                  <option value="">Select a server…</option>
+                  {servers.map((s) => (
+                    <option key={s} value={s}>
+                      {formatServer(s)}
+                    </option>
+                  ))}
+                </select>
+                {errors.server && <span className="error">{errors.server}</span>}
+              </label>
             )}
 
             <label>
               Name <small>(max 256 characters)</small>
-              <input value={fields.name} onChange={set("name")} />
+              <input value={fields.name} onChange={(e) => setField("name")(e.target.value)} autoFocus={editing} />
               {errors.name && <span className="error">{errors.name}</span>}
             </label>
 
             <label>
               Tag <small>(1-4 characters)</small>
-              <input value={fields.tag} onChange={set("tag")} />
+              <input value={fields.tag} onChange={(e) => setField("tag")(e.target.value)} />
               {errors.tag && <span className="error">{errors.tag}</span>}
             </label>
 
-            <PowerField
-              value={fields.power}
-              onChange={(power) => setFields((f) => ({ ...f, power }))}
-              error={errors.power}
-            />
+            <PowerField value={fields.power} onChange={setField("power")} error={errors.power} />
 
-            <NotesField
-              value={fields.notes}
-              onChange={(notes) => setFields((f) => ({ ...f, notes }))}
-              error={errors.notes}
-            />
+            {server && (
+              <>
+                <GroupChecklist
+                  kind="family"
+                  groups={serverFamilies}
+                  selected={fields.familyIds}
+                  onChange={setField("familyIds")}
+                  rootIds={rootIds}
+                  error={errors.familyIds}
+                />
+                <GroupChecklist
+                  kind="academy"
+                  groups={serverAcademies}
+                  selected={fields.academyIds}
+                  onChange={setField("academyIds")}
+                  rootIds={[]}
+                  error={errors.academyIds}
+                />
+              </>
+            )}
+
+            <NotesField value={fields.notes} onChange={setField("notes")} error={errors.notes} />
 
             {preview && <p className="preview">{preview}</p>}
-            {(errors._ || errors.isRoot || errors.type) && (
-              <p className="error">{errors._ || errors.isRoot || errors.type}</p>
-            )}
+            {errors._ && <p className="error">{errors._}</p>}
           </>
         )}
 
         <div className="modal-actions">
+          {editing && (
+            <button
+              type="button"
+              className="btn btn-danger push-left"
+              onClick={() => onDelete(alliance)}
+              disabled={busy}
+            >
+              Delete
+            </button>
+          )}
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={Boolean(blocker) || noFamiliesOnServer || saving}
-          >
-            {saving ? "Saving…" : "Save Alliance"}
+          <button type="submit" className="btn btn-primary" disabled={Boolean(blocker) || busy}>
+            {busy ? "Saving…" : editing ? "Save Changes" : "Save Alliance"}
           </button>
         </div>
       </form>

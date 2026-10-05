@@ -21,7 +21,8 @@ def main(data_dir):
         name = data["user"]["name"]
         if _upgrade(data):
             store.save(data["user"]["id"], data)
-            print(f"  migrated  {name}: {len(data['families'])} families, {len(data['alliances'])} alliances")
+            counts = ", ".join(f"{len(data[k])} {k}" for k in ("families", "academies", "alliances"))
+            print(f"  migrated  {name}: {counts}")
         else:
             print(f"  current   {name}")
     print("Done.")
