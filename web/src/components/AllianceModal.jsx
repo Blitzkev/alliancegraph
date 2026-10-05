@@ -273,19 +273,25 @@ export default function AllianceModal({
                 )}
 
                 {role === "academy" && (
-                  <label>
-                    Academy of
-                    <select value={academyOf} onChange={(e) => setAcademyOf(e.target.value)}>
-                      <option value="">Select a family…</option>
-                      {serverFamilies.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {formatFamily(f.id, alliances)}
-                        </option>
-                      ))}
-                    </select>
-                    {serverFamilies.length === 0 && <small>No families on this server yet.</small>}
+                  <fieldset className="group-checklist type-academy">
+                    <legend>Academy of</legend>
+                    {academyOf ? (
+                      <Chip onRemove={() => setAcademyOf("")} label={formatFamily(academyOf, alliances)}>
+                        <FamilyLabel familyId={academyOf} alliances={alliances} self={alliance} />
+                      </Chip>
+                    ) : serverFamilies.length ? (
+                      <TagSearch
+                        // Searching any member's tag picks that member's family.
+                        alliances={others.filter((a) => a.familyId)}
+                        onPick={(a) => setAcademyOf(a.familyId)}
+                        describe={(a) => relationshipNote(a, alliances)}
+                        placeholder="Search by tag to pick the family"
+                      />
+                    ) : (
+                      <p className="muted">No families on this server yet.</p>
+                    )}
                     {errors.academyOf && <span className="error">{errors.academyOf}</span>}
-                  </label>
+                  </fieldset>
                 )}
 
                 {serverFamilies.length > 0 && (
