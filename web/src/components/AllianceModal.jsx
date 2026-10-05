@@ -1,59 +1,80 @@
 import { useEffect, useState } from "react";
-import { createItem, updateItem } from "../api";
+import { createAlliance, updateAlliance } from "../api";
 import {
+  byPower,
   charLength,
+  familyMembers,
   formatAlliance,
+  formatFamily,
   formatPower,
   formatServer,
-  GROUP,
   parsePower,
+  roleOf,
   sortByName,
+  sortFamilies,
 } from "../format";
 import NotesField, { notesError } from "./NotesField";
 import PowerField, { powerError } from "./PowerField";
 
-// Pick any number of a server's families or academies. `disabledIds` are shown but can't be picked.
-function GroupChecklist({ kind, title, groups, selected, onChange, rootIds = [], disabledIds = [], disabledNote, error }) {
-  const { plural, label } = GROUP[kind];
-  const toggle = (id) =>
-    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+const ROLES = [
+  { value: "none", label: "Independent" },
+  { value: "family", label: "Family member" },
+  { value: "academy", label: "Academy of a family" },
+];
+
+const toggle = (list, id) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+
+// "In a family with": whole families (picked as a unit) and independent alliances.
+function FamilyPicker({ families, independents, alliances, self, picked, onPick, loners, onLoners, error }) {
+  const mergeCount = picked.length;
+  const nothing = picked.length === 0 && loners.length === 0;
+  const ownFamilyAlone = self?.familyId && picked.length === 1 && picked[0] === self.familyId &&
+    familyMembers(self.familyId, alliances).length === 1;
   return (
-    <fieldset className={`group-checklist type-${kind}`}>
-      <legend>
-        {title ?? plural} <small>({selected.length} selected)</small>
-      </legend>
-      {groups.length === 0 ? (
-        <p className="muted">No {plural.toLowerCase()} on this server yet. Create one with “{label}”.</p>
-      ) : (
-        groups.map((g) => (
-          <label key={g.id} className={`checkbox${disabledIds.includes(g.id) ? " disabled" : ""}`}>
-            <input
-              type="checkbox"
-              checked={selected.includes(g.id)}
-              onChange={() => toggle(g.id)}
-              disabled={disabledIds.includes(g.id)}
-            />
+    <fieldset className="group-checklist type-family">
+      <legend>In a family with</legend>
+      {families.length === 0 && independents.length === 0 && (
+        <p className="muted">No other alliances on this server yet.</p>
+      )}
+      {families.map((f) => {
+        const members = familyMembers(f.id, alliances).filter((a) => a.id !== self?.id).sort(byPower);
+        return (
+          <label key={f.id} className="checkbox family-option">
+            <input type="checkbox" checked={picked.includes(f.id)} onChange={() => onPick(toggle(picked, f.id))} />
             <span>
-              {g.name}
-              {rootIds.includes(g.id) && <span className="root-badge">Root</span>}
-              {disabledIds.includes(g.id) && <small> ({disabledNote})</small>}
+              {formatFamily(f.id, alliances)}
+              <small className="member-tags">
+                {members.length ? members.map((m) => m.tag).join(", ") : "only this alliance"}
+              </small>
             </span>
           </label>
-        ))
+        );
+      })}
+      {independents.length > 0 && <div className="checklist-heading">Independent alliances</div>}
+      {independents.map((a) => (
+        <label key={a.id} className="checkbox">
+          <input type="checkbox" checked={loners.includes(a.id)} onChange={() => onLoners(toggle(loners, a.id))} />
+          <span>{formatAlliance(a)}</span>
+        </label>
+      ))}
+      {mergeCount > 1 && (
+        <p className="warning">These {mergeCount} families will be merged into one family.</p>
       )}
+      {nothing && <p className="muted">Nothing picked: this alliance starts a new family on its own.</p>}
+      {ownFamilyAlone && loners.length === 0 && <p className="muted">It stays a family of one.</p>}
       {error && <span className="error">{error}</span>}
     </fieldset>
   );
 }
 
-// Create (no `alliance`) or edit an alliance.
+// Create (no `alliance`) or edit an alliance, including its family relationships.
 export default function AllianceModal({
   userId,
   alliance,
   servers,
   defaultServer,
   families,
-  academies,
+  alliances,
   onSaved,
   onDelete,
   onClose,
@@ -65,17 +86,22 @@ export default function AllianceModal({
     tag: alliance?.tag ?? "",
     power: alliance ? formatPower(alliance.power) : "",
     notes: alliance?.notes ?? "",
-    familyIds: alliance?.familyIds ?? [],
-    academyIds: alliance?.academyIds ?? [],
-    alliedFamilyIds: alliance?.alliedFamilyIds ?? [],
   });
+  const [role, setRole] = useState(alliance ? roleOf(alliance) : "none");
+  const [pickedFamilies, setPickedFamilies] = useState(alliance?.familyId ? [alliance.familyId] : []);
+  const [pickedLoners, setPickedLoners] = useState([]);
+  const [academyOf, setAcademyOf] = useState(alliance?.academyOf ?? "");
+  const [allied, setAllied] = useState(alliance?.alliedFamilyIds ?? []);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
 
-  // Groups only ever contain alliances from their own server.
-  const serverFamilies = sortByName(families.filter((f) => f.server === server));
-  const serverAcademies = sortByName(academies.filter((a) => a.server === server));
-  const rootIds = editing ? families.filter((f) => f.rootId === alliance.id).map((f) => f.id) : [];
+  // Relationships only ever stay within one server.
+  const serverFamilies = sortFamilies(families.filter((f) => f.server === server));
+  const independents = sortByName(
+    alliances.filter((a) => a.server === server && roleOf(a) === "none" && a.id !== alliance?.id),
+  );
+  // Families this alliance will belong to / be an academy of can't also be allied.
+  const ownFamilies = role === "family" ? pickedFamilies : role === "academy" && academyOf ? [academyOf] : [];
 
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -86,7 +112,10 @@ export default function AllianceModal({
   const setField = (key) => (value) => setFields((f) => ({ ...f, [key]: value }));
   const changeServer = (value) => {
     setServer(value);
-    setFields((f) => ({ ...f, familyIds: [], academyIds: [], alliedFamilyIds: [] }));
+    setPickedFamilies([]);
+    setPickedLoners([]);
+    setAcademyOf("");
+    setAllied([]);
   };
 
   const handleSubmit = async (e) => {
@@ -99,6 +128,7 @@ export default function AllianceModal({
     if (t === 0) found.tag = "Tag is required.";
     else if (t > 4) found.tag = "Tag must be 1-4 characters.";
     if (!server) found.server = "Select a server.";
+    if (role === "academy" && !academyOf) found.academyOf = "Pick the family it's an academy of.";
     const powerProblem = powerError(fields.power);
     if (powerProblem) found.power = powerProblem;
     const notesProblem = notesError(fields.notes);
@@ -106,11 +136,23 @@ export default function AllianceModal({
     setErrors(found);
     if (Object.keys(found).length) return;
 
+    const familyWith = [
+      ...pickedFamilies.flatMap((id) => familyMembers(id, alliances).map((a) => a.id)),
+      ...pickedLoners,
+    ].filter((id) => id !== alliance?.id);
+    const body = {
+      ...fields,
+      power: parsePower(fields.power),
+      server,
+      role,
+      familyWith,
+      academyOf: role === "academy" ? academyOf : null,
+      alliedFamilyIds: allied.filter((id) => !ownFamilies.includes(id)),
+    };
     setBusy(true);
-    const body = { ...fields, power: parsePower(fields.power), server };
     try {
-      if (editing) await updateItem(userId, "alliances", alliance.id, body);
-      else await createItem(userId, "alliances", body);
+      if (editing) await updateAlliance(userId, alliance.id, body);
+      else await createAlliance(userId, body);
       onSaved();
     } catch (err) {
       setErrors(err.errors);
@@ -127,10 +169,7 @@ export default function AllianceModal({
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal modal-alliance" onSubmit={handleSubmit} noValidate>
-        <h2>
-          {editing ? "Edit Alliance" : "New Alliance"}
-          {rootIds.length > 0 && <span className="root-badge">Root</span>}
-        </h2>
+        <h2>{editing ? "Edit Alliance" : "New Alliance"}</h2>
 
         {blocker ? (
           <p className="error banner">{blocker}</p>
@@ -171,40 +210,72 @@ export default function AllianceModal({
 
             {server && (
               <>
-                <GroupChecklist
-                  kind="family"
-                  title="Member of families"
-                  groups={serverFamilies}
-                  selected={fields.familyIds}
-                  // Joining a family replaces being allied with it.
-                  onChange={(ids) =>
-                    setFields((f) => ({
-                      ...f,
-                      familyIds: ids,
-                      alliedFamilyIds: f.alliedFamilyIds.filter((id) => !ids.includes(id)),
-                    }))
-                  }
-                  rootIds={rootIds}
-                  error={errors.familyIds}
-                />
-                <GroupChecklist
-                  kind="family"
-                  title="Allied with families"
-                  groups={serverFamilies}
-                  selected={fields.alliedFamilyIds}
-                  onChange={setField("alliedFamilyIds")}
-                  disabledIds={fields.familyIds}
-                  disabledNote="member"
-                  error={errors.alliedFamilyIds}
-                />
-                <GroupChecklist
-                  kind="academy"
-                  title="Member of academies"
-                  groups={serverAcademies}
-                  selected={fields.academyIds}
-                  onChange={setField("academyIds")}
-                  error={errors.academyIds}
-                />
+                <fieldset className="role-choice">
+                  <legend>Relationship</legend>
+                  {ROLES.map((r) => (
+                    <label key={r.value} className="radio">
+                      <input type="radio" checked={role === r.value} onChange={() => setRole(r.value)} />
+                      {r.label}
+                    </label>
+                  ))}
+                  {errors.role && <span className="error">{errors.role}</span>}
+                </fieldset>
+
+                {role === "family" && (
+                  <FamilyPicker
+                    families={serverFamilies}
+                    independents={independents}
+                    alliances={alliances}
+                    self={alliance}
+                    picked={pickedFamilies}
+                    onPick={setPickedFamilies}
+                    loners={pickedLoners}
+                    onLoners={setPickedLoners}
+                    error={errors.familyWith}
+                  />
+                )}
+
+                {role === "academy" && (
+                  <label>
+                    Academy of
+                    <select value={academyOf} onChange={(e) => setAcademyOf(e.target.value)}>
+                      <option value="">Select a family…</option>
+                      {serverFamilies.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {formatFamily(f.id, alliances)}
+                        </option>
+                      ))}
+                    </select>
+                    {serverFamilies.length === 0 && <small>No families on this server yet.</small>}
+                    {errors.academyOf && <span className="error">{errors.academyOf}</span>}
+                  </label>
+                )}
+
+                {serverFamilies.length > 0 && (
+                  <fieldset className="group-checklist type-family">
+                    <legend>
+                      Allied with families <small>({allied.filter((id) => !ownFamilies.includes(id)).length} selected)</small>
+                    </legend>
+                    {serverFamilies.map((f) => {
+                      const own = ownFamilies.includes(f.id);
+                      return (
+                        <label key={f.id} className={`checkbox${own ? " disabled" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={!own && allied.includes(f.id)}
+                            onChange={() => setAllied(toggle(allied, f.id))}
+                            disabled={own}
+                          />
+                          <span>
+                            {formatFamily(f.id, alliances)}
+                            {own && <small> (its own family)</small>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                    {errors.alliedFamilyIds && <span className="error">{errors.alliedFamilyIds}</span>}
+                  </fieldset>
+                )}
               </>
             )}
 

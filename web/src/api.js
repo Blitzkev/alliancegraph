@@ -33,11 +33,21 @@ export const createServer = (userId, number) => post(`${userBase(userId)}/server
 export const deleteServer = (userId, number) =>
   del(`${userBase(userId)}/servers/${encodeURIComponent(number)}`);
 
-// collection: "alliances" | "families" | "academies"
-export const createItem = (userId, collection, fields) => post(`${userBase(userId)}/${collection}`, fields);
-export const updateItem = (userId, collection, id, fields) =>
-  patch(`${userBase(userId)}/${collection}/${encodeURIComponent(id)}`, fields);
-export const deleteItem = (userId, collection, id) =>
-  del(`${userBase(userId)}/${collection}/${encodeURIComponent(id)}`);
+export const createAlliance = (userId, fields) => post(`${userBase(userId)}/alliances`, fields);
+export const updateAlliance = (userId, id, fields) =>
+  patch(`${userBase(userId)}/alliances/${encodeURIComponent(id)}`, fields);
+
+// academies: undefined | "delete" | "detach" | { moveTo: familyId }. Needed when deleting a family's
+// last member while it still has academies (the server answers 409 otherwise).
+export const deleteAlliance = (userId, id, academies) => {
+  const params = new URLSearchParams();
+  if (academies === "delete" || academies === "detach") params.set("academies", academies);
+  else if (academies?.moveTo) {
+    params.set("academies", "move");
+    params.set("moveTo", academies.moveTo);
+  }
+  const query = params.toString() ? `?${params}` : "";
+  return del(`${userBase(userId)}/alliances/${encodeURIComponent(id)}${query}`);
+};
 
 export const reorderAlliances = (userId, ids) => put(`${userBase(userId)}/alliances/order`, { ids });

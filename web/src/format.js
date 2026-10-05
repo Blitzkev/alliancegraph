@@ -5,17 +5,11 @@ export const charLength = (s) => Array.from(s).length;
 
 export const formatServer = (number) => `Server #${number}`;
 
-// The two kinds of group an alliance can belong to (any number of each).
-export const GROUP = {
-  family: { collection: "families", field: "familyIds", label: "Family", plural: "Families" },
-  academy: { collection: "academies", field: "academyIds", label: "Academy", plural: "Academies" },
-};
+// An alliance is a family member, an academy of one family, or independent.
+export const roleOf = (a) => (a.familyId ? "family" : a.academyOf ? "academy" : "none");
 
-export const membersOf = (kind, groupId, alliances) =>
-  alliances.filter((a) => a[GROUP[kind].field].includes(groupId));
-
-// Families whose root this alliance is.
-export const rootOf = (alliance, families) => families.filter((f) => f.rootId === alliance.id);
+export const familyMembers = (familyId, alliances) => alliances.filter((a) => a.familyId === familyId);
+export const familyAcademies = (familyId, alliances) => alliances.filter((a) => a.academyOf === familyId);
 
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 export const sortByName = (items) => [...items].sort(byName);
@@ -43,3 +37,15 @@ export const byPower = (a, b) => {
   if (powerA !== powerB) return powerA > powerB ? -1 : 1;
   return byName(a, b);
 };
+
+// A family has no name: it's led by its strongest member (highest power, ties by name).
+export const familyLeader = (familyId, alliances) => [...familyMembers(familyId, alliances)].sort(byPower)[0] ?? null;
+
+export const formatFamily = (familyId, alliances) => {
+  const leader = familyLeader(familyId, alliances);
+  return leader ? `${leader.name} family` : "Empty family";
+};
+
+// Families oldest first, so new ones appear at the end.
+export const sortFamilies = (families) =>
+  [...families].sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));

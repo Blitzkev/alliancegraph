@@ -2,31 +2,29 @@
 
 A single-page site for tracking alliances and how they relate, drawn as an interactive D3 graph.
 
-Three kinds of things live on each server:
+Everything is an **alliance** (name, tag, power, notes). Relationships are set in the alliance's form:
 
-- **Alliances**: name, tag, power and notes. An alliance can be in any number of families and
-  academies (including none), chosen in its create/edit form.
-- **Families**: a named group of alliances. One member is the family's **root** (picked in the family's
-  edit form); the first member becomes root automatically, and if the root leaves or is deleted the
-  strongest remaining member (by power) takes over.
-- **Academies**: a named group of alliances that can be protected by any number of families.
-- **Allied**: an alliance can also be *allied* with any number of families it isn't a member of, e.g. a
-  "loner" that is roughly aligned with a family. Shown as a dashed line; it doesn't make the alliance a
-  member (or a root candidate) of that family.
+- **Family member**: families are unnamed sets of alliances that never overlap. Pick the alliances (or a
+  whole existing family) this alliance is in a family with; picking alliances from different families
+  merges them, and picking nothing starts a new family. A family is led by its strongest member
+  (highest power, ties by name) and is shown as "<leader> family".
+- **Academy**: an academy of exactly one family. An alliance is either a family member, an academy, or
+  independent.
+- **Allied**: any alliance can also be allied with any number of other families, e.g. a "loner" roughly
+  aligned with a family. Shown as a dashed line; it doesn't make it a member.
+
+Deleting a family's last member while it still has academies asks whether to move them to another
+family, make them independent, or delete them.
 
 Each server/kingdom has its own tab above the graph (creating one opens its tab); the graph shows one
-kingdom at a time as a stack of rows: each family (oldest first) followed by the academies it
-protects, then academies no family protects, then alliances in no group. Each row is the family/academy on the
-left with its alliances (tag and power; details in the side panel) to the right. Every alliance appears once, in its first family's row; its
-other families and academies reach it with a curved line (amber marks a family's root), and dotted
-arcs down the left show which families protect which academies. Drag alliances sideways to reorder
-them within their row, and click anything to see its details (members, notes, memberships) in a side
-panel.
+kingdom at a time as a stack of rows: each family (oldest first), then a row of its academies, and
+independent alliances at the bottom. Each row has a hub on the left and its alliances (tag and power)
+to the right; the leader is amber. Drag alliances sideways to reorder them within their row, and click a
+hub or alliance to see details (members, academies, allies, notes) in a side panel.
 
 Notes (up to 200,000 characters) are stored exactly as typed. **Power** is a whole number from 0 to
 2^64-1, shown as e.g. `1,200,000`; it travels as a digit string because browsers can't represent
-integers that large exactly. Alliances are grouped by family and ordered by power unless you rearrange
-them by dragging.
+integers that large exactly. Within a row, alliances are ordered by power unless you rearrange them by dragging.
 
 Each alliance belongs to a **server/kingdom** (a 4-digit number) and is shown as
 `[#TAG][#SERVER]Name`, e.g. `[#G~4][#4180]Path of Exiles`. Alliances can only be related to alliances
@@ -95,7 +93,7 @@ Data persists in `data/users/`.
 The server doesn't come back by itself after a reboot; run `make run` again (or set up a systemd
 service).
 
-Data written by older versions (root alliances, or one-family-per-alliance) is upgraded
+Data written by older versions (root alliances, named families/academies, ...) is upgraded
 automatically the first time it's loaded. To upgrade everything up front, with a backup, run:
 
 ```sh
@@ -149,18 +147,15 @@ All graph endpoints are scoped to a user: `<u>` below is `/api/users/<user id>`.
 | ------ | ---------------------------- | ------------------------------------------------------------------- |
 | GET    | `/api/users`                 | List of users                                                       |
 | POST   | `/api/users`                 | `{name}` (1-64 chars, unique) → `201` user, or `400 {errors}`        |
-| GET    | `<u>/graph`                  | `{servers, families, academies, alliances}`: everything the page needs |
+| GET    | `<u>/graph`                  | `{servers, families, alliances}`: everything the page needs         |
 | POST   | `<u>/servers`                | `{number}` (4 digits) → `201` server                                 |
 | DELETE | `<u>/servers/<number>`       | Deletes the server and everything on it                             |
-| POST   | `<u>/families`               | `{name, server}` → `201` family (`rootId` is set once it has members) |
-| PATCH  | `<u>/families/<id>`          | Any of `{name, rootId}`; `rootId` must be a member                   |
-| POST   | `<u>/academies`              | `{name, server, familyIds?}` → `201` academy                         |
-| PATCH  | `<u>/academies/<id>`         | Any of `{name, familyIds}`                                           |
-| DELETE | `<u>/families/<id>`, `<u>/academies/<id>` | Deletes the group; its alliances are kept              |
-| POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, familyIds?, academyIds?, alliedFamilyIds?}` → `201` alliance |
-| PATCH  | `<u>/alliances/<id>`         | Any of `{name, tag, power, notes, familyIds, academyIds, alliedFamilyIds}`. Server is fixed; a family can't be in both `familyIds` and `alliedFamilyIds` |
+| POST   | `<u>/alliances`              | `{name, tag, server, power?, notes?, role?, familyWith?, academyOf?, alliedFamilyIds?}` → `201` alliance |
+| PATCH  | `<u>/alliances/<id>`         | Any of the above except `server`; omitted relationship fields keep their current values |
 | PUT    | `<u>/alliances/order`        | `{ids: [...]}` → sets each alliance's display position to its index  |
-| DELETE | `<u>/alliances/<id>`         | `{deleted: [id]}`                                                   |
+| DELETE | `<u>/alliances/<id>`         | `{deleted: [ids]}`. For a family's last member with academies add `?academies=detach`, `?academies=delete` or `?academies=move&moveTo=<family id>` (otherwise `409`) |
 
-Families and academies (and their members) always belong to one server. Every list endpoint
-(`GET <u>/servers`, `/families`, `/academies`, `/alliances`) is also available.
+Relationship fields: `role` is `family`, `academy` or `none` (default). With `family`, `familyWith` lists
+the alliances to be in a family with (their families merge into the oldest; empty starts a new family).
+With `academy`, `academyOf` is a family id. Families are `{id, server, createdAt}` and exist while they
+have members. Alliances carry `familyId`, `academyOf` and `alliedFamilyIds`.

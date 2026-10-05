@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { byPower, formatAlliance, formatPower, formatServer, GROUP, membersOf, sortByName } from "../format";
+import {
+  byPower,
+  familyAcademies,
+  familyLeader,
+  familyMembers,
+  formatAlliance,
+  formatFamily,
+  formatPower,
+  formatServer,
+  sortFamilies,
+} from "../format";
 
 // Long notes are clipped to a few lines until expanded.
 const NOTES_PREVIEW_LINES = 4;
@@ -21,16 +31,16 @@ function Notes({ text }) {
   );
 }
 
-function AllianceItem({ alliance, isRoot, onEdit }) {
+function AllianceItem({ alliance, isLeader, onEdit }) {
   return (
     <li>
       <button
-        className={`tree-item type-${isRoot ? "root" : "alliance"}`}
+        className={`tree-item type-${isLeader ? "root" : "alliance"}`}
         onClick={() => onEdit(alliance)}
         title="Click to edit or delete"
       >
         {formatAlliance(alliance)}
-        {isRoot && <span className="root-badge">Root</span>}
+        {isLeader && <span className="root-badge">Leader</span>}
         <span className="tree-power">{formatPower(alliance.power)}</span>
       </button>
       <Notes text={alliance.notes} />
@@ -38,19 +48,35 @@ function AllianceItem({ alliance, isRoot, onEdit }) {
   );
 }
 
-function GroupLinks({ label, kind, groups, onSelect, rootIds = [] }) {
+function AllianceList({ label, kind, items, leaderId, onEdit, empty = "None" }) {
   return (
     <li>
       <span className={`tree-group type-${kind}`}>
-        {label} ({groups.length})
+        {label} ({items.length})
       </span>
       <ul>
-        {groups.length ? (
-          groups.map((g) => (
-            <li key={g.id}>
-              <button className={`tree-item type-${kind}`} onClick={() => onSelect({ kind, id: g.id })}>
-                {g.name}
-                {rootIds.includes(g.id) && <span className="root-badge">Root</span>}
+        {items.length ? (
+          items.map((a) => <AllianceItem key={a.id} alliance={a} isLeader={a.id === leaderId} onEdit={onEdit} />)
+        ) : (
+          <li className="tree-empty">{empty}</li>
+        )}
+      </ul>
+    </li>
+  );
+}
+
+function FamilyLinks({ label, kind, familyIds, alliances, onSelect }) {
+  return (
+    <li>
+      <span className={`tree-group type-${kind}`}>
+        {label} ({familyIds.length})
+      </span>
+      <ul>
+        {familyIds.length ? (
+          familyIds.map((id) => (
+            <li key={id}>
+              <button className="tree-item type-family" onClick={() => onSelect({ kind: "family", id })}>
+                {formatFamily(id, alliances)}
               </button>
             </li>
           ))
@@ -62,100 +88,71 @@ function GroupLinks({ label, kind, groups, onSelect, rootIds = [] }) {
   );
 }
 
-function GroupDetails({ kind, group, families, academies, alliances, onSelect, onEditAlliance }) {
-  const members = [...membersOf(kind, group.id, alliances)].sort(byPower);
-  const allies = alliances.filter((a) => a.alliedFamilyIds.includes(group.id)).sort(byPower);
-  // The root is listed first.
-  const ordered = kind === "family" ? [...members].sort((a, b) => (b.id === group.rootId) - (a.id === group.rootId)) : members;
+function FamilyDetails({ family, alliances, onEditAlliance }) {
+  const leader = familyLeader(family.id, alliances);
+  const members = [...familyMembers(family.id, alliances)].sort(byPower); // leader comes first
   return (
     <ul className="tree">
-      <li>
-        <span className={`tree-group type-${kind}`}>Alliances ({members.length})</span>
-        <ul>
-          {ordered.length ? (
-            ordered.map((a) => (
-              <AllianceItem key={a.id} alliance={a} isRoot={a.id === group.rootId} onEdit={onEditAlliance} />
-            ))
-          ) : (
-            <li className="tree-empty">None yet. Add them from an alliance's edit form.</li>
-          )}
-        </ul>
-      </li>
-      {kind === "family" && (
-        <li>
-          <span className="tree-group type-allied">Allied alliances ({allies.length})</span>
-          <ul>
-            {allies.length ? (
-              allies.map((a) => <AllianceItem key={a.id} alliance={a} isRoot={false} onEdit={onEditAlliance} />)
-            ) : (
-              <li className="tree-empty">None</li>
-            )}
-          </ul>
-        </li>
-      )}
-      {kind === "family" ? (
-        <GroupLinks
-          label="Protects academies"
-          kind="academy"
-          groups={sortByName(academies.filter((a) => a.familyIds.includes(group.id)))}
-          onSelect={onSelect}
-        />
-      ) : (
-        <GroupLinks
-          label="Protected by families"
-          kind="family"
-          groups={sortByName(families.filter((f) => group.familyIds.includes(f.id)))}
-          onSelect={onSelect}
-        />
-      )}
+      <AllianceList label="Members" kind="family" items={members} leaderId={leader?.id} onEdit={onEditAlliance} />
+      <AllianceList
+        label="Academies"
+        kind="academy"
+        items={[...familyAcademies(family.id, alliances)].sort(byPower)}
+        onEdit={onEditAlliance}
+      />
+      <AllianceList
+        label="Allied alliances"
+        kind="allied"
+        items={alliances.filter((a) => a.alliedFamilyIds.includes(family.id)).sort(byPower)}
+        onEdit={onEditAlliance}
+      />
     </ul>
   );
 }
 
-function AllianceDetails({ alliance, families, academies, onSelect }) {
+function AllianceDetails({ alliance, families, alliances, onSelect }) {
+  const familyOrder = sortFamilies(families).map((f) => f.id);
+  const allied = familyOrder.filter((id) => alliance.alliedFamilyIds.includes(id));
+  let relationship = "Independent";
+  if (alliance.familyId) {
+    const isLeader = familyLeader(alliance.familyId, alliances)?.id === alliance.id;
+    relationship = isLeader ? "Leader of" : "Member of";
+  } else if (alliance.academyOf) relationship = "Academy of";
+  const familyId = alliance.familyId || alliance.academyOf;
   return (
     <>
       <p className="panel-power">Power: {formatPower(alliance.power)}</p>
+      <p className="panel-relationship">
+        {relationship}
+        {familyId && (
+          <>
+            {" "}
+            <button className="link-btn inline" onClick={() => onSelect({ kind: "family", id: familyId })}>
+              {formatFamily(familyId, alliances)}
+            </button>
+          </>
+        )}
+      </p>
       <Notes text={alliance.notes} />
       <ul className="tree">
-        <GroupLinks
-          label="Families"
-          kind="family"
-          groups={sortByName(families.filter((f) => alliance.familyIds.includes(f.id)))}
-          rootIds={families.filter((f) => f.rootId === alliance.id).map((f) => f.id)}
-          onSelect={onSelect}
-        />
-        <GroupLinks
-          label="Allied with families"
-          kind="family"
-          groups={sortByName(families.filter((f) => alliance.alliedFamilyIds.includes(f.id)))}
-          onSelect={onSelect}
-        />
-        <GroupLinks
-          label="Academies"
-          kind="academy"
-          groups={sortByName(academies.filter((a) => alliance.academyIds.includes(a.id)))}
-          onSelect={onSelect}
-        />
+        <FamilyLinks label="Allied with families" kind="allied" familyIds={allied} alliances={alliances} onSelect={onSelect} />
       </ul>
     </>
   );
 }
 
-// Side panel for whatever is selected in the graph: a family, an academy or an alliance.
-export default function DetailPanel({ selected, families, academies, alliances, onSelect, onEdit, onClose }) {
-  const collection = selected.kind === "alliance" ? alliances : selected.kind === "family" ? families : academies;
-  const item = collection.find((x) => x.id === selected.id);
+// Side panel for whatever is selected in the graph: a family or an alliance.
+export default function DetailPanel({ selected, families, alliances, onSelect, onEdit, onClose }) {
+  const isFamily = selected.kind === "family";
+  const item = (isFamily ? families : alliances).find((x) => x.id === selected.id);
   if (!item) return null;
-  const isAlliance = selected.kind === "alliance";
-  const title = isAlliance ? formatAlliance(item) : item.name;
-  const heading = isAlliance ? "Alliance" : GROUP[selected.kind].label;
+  const title = isFamily ? formatFamily(item.id, alliances) : formatAlliance(item);
 
   return (
     <aside className="umbrella-panel">
       <header>
         <div>
-          <h2 className={`type-${selected.kind}`}>{heading}</h2>
+          <h2 className={`type-${isFamily ? "family" : "alliance"}`}>{isFamily ? "Family" : "Alliance"}</h2>
           <div className="panel-title">{title}</div>
           <small>{formatServer(item.server)}</small>
         </div>
@@ -163,25 +160,22 @@ export default function DetailPanel({ selected, families, academies, alliances, 
           ×
         </button>
       </header>
-      {isAlliance ? (
-        <AllianceDetails alliance={item} families={families} academies={academies} onSelect={onSelect} />
+      {isFamily ? (
+        <FamilyDetails family={item} alliances={alliances} onEditAlliance={(a) => onEdit(a)} />
       ) : (
-        <GroupDetails
-          kind={selected.kind}
-          group={item}
-          families={families}
-          academies={academies}
-          alliances={alliances}
-          onSelect={onSelect}
-          onEditAlliance={(a) => onEdit("alliance", a)}
-        />
+        <AllianceDetails alliance={item} families={families} alliances={alliances} onSelect={onSelect} />
       )}
-      <div className="panel-actions">
-        <button className="btn btn-secondary" onClick={() => onEdit(selected.kind, item)}>
-          Edit {heading.toLowerCase()}
-        </button>
-      </div>
-      {!isAlliance && <p className="panel-hint">Click an alliance to edit or delete it.</p>}
+      {isFamily ? (
+        <p className="panel-hint">
+          A family is led by its strongest member. Click an alliance to edit it or change its family.
+        </p>
+      ) : (
+        <div className="panel-actions">
+          <button className="btn btn-secondary" onClick={() => onEdit(item)}>
+            Edit alliance
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
